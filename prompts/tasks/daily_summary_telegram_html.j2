@@ -1,15 +1,21 @@
-🧬 <b>PROJECT CHIMERA | DAILY BRIEFING</b> 🧬
+🚨 <b>[BB Channel] Chimera Morning Broadcast</b> 🚨
 ━━━━━━━━━━━━━━━━━━━━
-🕸️ Fetched Today: <b>{{ new_pdfs_count }}</b>
-📊 Total: <b>{{ total }}</b> | 💎 Must Read: <b>{{ must_read }}</b> | 🗑️ Reject: {{ reject }}
+"Good morning, Senpai~ ♡ Here is the academic trash I've digested for you."
 
-🎯 <b>ACQUIRED TARGETS</b>
+📥 Ingested Meat: <b>{{ total }}</b>
+💎 Synthesized Cubes: <b>{{ must_read }}</b>
+🗑️ Erased from reality: {{ reject }}
+
+━━━━━━━━━━━━━━━━━━━━
+🎯 <b>SURVIVING TARGETS (Please consume)</b>
+
 {% if must_read_items %}
 {% for item in must_read_items %}
 🔹 <b>[{{ item.score }}/10]</b> <code>{{ item.title }}</code>
+   <a href="{{ item.arxiv_url }}">🌐 Arxiv</a> | <a href="{{ item.obsidian_url }}">🧠 Vault</a>
    <i>💡 {{ item.novelty }}</i>
 
 {% endfor %}
 {% else %}
-<i>☕ No targets today.</i>
+<i>☕ All targets were garbage today. You can go back to sleep.</i>
 {% endif %}

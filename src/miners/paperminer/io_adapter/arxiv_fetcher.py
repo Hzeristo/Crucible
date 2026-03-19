@@ -20,9 +20,16 @@ class ArxivFetcher:
     """Fetch arXiv metadata from official API and download PDF files."""
 
     API_URL = "http://export.arxiv.org/api/query"
+    REQUEST_HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36 "
+            "ProjectChimera/1.0"
+        )
+    }
 
     def __init__(
-        self, settings: Settings | None = None, timeout_seconds: int = 15
+        self, settings: Settings | None = None, timeout_seconds: int = 50
     ) -> None:
         self.settings = settings or Settings()
         self.timeout_seconds = timeout_seconds
@@ -40,22 +47,26 @@ class ArxivFetcher:
         Returns:
             List of records with keys: id, title, pdf_url.
         """
+        pm = self.settings.paper_miner_or_default
         params = {
-            "search_query": self.settings.arxiv_query,
+            "search_query": pm.arxiv_query,
             "start": 0,
-            "max_results": self.settings.arxiv_max_results,
+            "max_results": pm.arxiv_max_results,
             "sortBy": "submittedDate",
             "sortOrder": "descending",
         }
 
         try:
             response = requests.get(
-                self.API_URL, params=params, timeout=self.timeout_seconds
+                self.API_URL,
+                params=params,
+                headers=self.REQUEST_HEADERS,
+                timeout=self.timeout_seconds,
             )
             response.raise_for_status()
             logger.debug("Arxiv URL: %s", response.url)
         except requests.Timeout:
-            logger.error("Arxiv API connection failed. Check your TUN/Proxy.")
+            logger.error("Arxiv API connection timed out. Check your TUN/Proxy.")
             return []
         except requests.RequestException as exc:
             logger.warning("Arxiv API request failed: %s", exc)
@@ -123,7 +134,10 @@ class ArxivFetcher:
 
             try:
                 with requests.get(
-                    pdf_url, stream=True, timeout=self.timeout_seconds
+                    pdf_url,
+                    stream=True,
+                    headers=self.REQUEST_HEADERS,
+                    timeout=self.timeout_seconds,
                 ) as response:
                     response.raise_for_status()
                     with pdf_path.open("wb") as file_obj:

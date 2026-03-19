@@ -1,15 +1,16 @@
 # config.example.yaml
 # Rename to config.yaml and adjust paths for your local environment.
+# The Crucible - Project Chimera 通用配置中心
 
+# --- Generic Crucible ---
 vault_root: "D:/Obsidian/Exocortex"  # MUST be absolute
-inbox_folder: "00_Inbox/Chimera_Triage"
+inbox_folder: "D:/Obsidian/Exocortex/00_Inbox/Chimera_Triage"  # MUST be absolute
 
-arxivpdf_dir: "papers/arxivpdf"      # Will be anchored to PROJECT_ROOT
-md_papers_raw_dir: "papers/md_papers_raw"
-md_papers_dir: "papers/md_papers"
-filtered_dir: "papers/filtered"
-
-# tools:
-#   mineru_executable: "D:/anaconda3/envs/mineru/Scripts/mineru.exe" # Absolute path to isolated env
-arxiv_query: "cat:cs.AI AND (all:memory OR all:agent)"
-arxiv_max_results: 50
+# --- [PaperMiner Settings] Optional sub-block (flat keys also supported for backward compat) ---
+paper_miner:
+  arxivpdf_dir: "papers/arxivpdf"      # Will be anchored to PROJECT_ROOT
+  md_papers_raw_dir: "papers/md_papers_raw"
+  md_papers_dir: "papers/md_papers"
+  filtered_dir: "papers/filtered"
+  arxiv_query: "cat:cs.AI AND (all:memory OR all:agent)"
+  arxiv_max_results: 50

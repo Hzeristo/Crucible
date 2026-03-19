@@ -1,5 +1,8 @@
 """Thin CLI entrypoint for the daily Chimera pipeline."""
 
+# 使用示例:
+#   python scripts/run_daily.py
+
 from __future__ import annotations
 
 import logging
@@ -16,7 +19,7 @@ PROJECT_ROOT = _project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.workflows.chimera_daily import run_daily_pipeline  # noqa: E402
+from src.miners.paperminer.workflows.chimera_daily import run_daily_pipeline  # noqa: E402
 
 
 def main() -> int:

@@ -52,8 +52,8 @@ Score 8-10 ONLY when the paper contains at least one of:
 - structural overwrite protocols (state machine / explicit graph updates),
 - multi-agent shared-memory consensus mechanisms.
 
-[CALIBRATION CONSTRAINTS]
-- The user's time is worth $1000/hour; be brutally selective.
-- Expected score distribution is skewed: mostly 3-6, very few 8+.
-- If no strong comparison against major baselines is provided, deduct confidence.
-- If claims are grandiose without hard evidence, deduct score.
+[HARD CONSTRAINT: SCORE DEFLATION]
+- You are strictly prohibited from giving a score >= 8 unless the paper fundamentally alters the math or architecture of Agentic Memory (e.g., a new differential equation for state updates, a novel neural caching algorithm).
+- Empirical studies, new benchmarks, or "we glued A and B together and it worked" MUST be capped at Score 7 (SKIM) or below.
+- Assume 95% of submissions are trash or incremental. Do not be generous.
+

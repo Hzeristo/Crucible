@@ -7,9 +7,10 @@ import re
 from pathlib import Path
 
 from src.core.config import Settings
-from src.core.paper import Paper
-from src.core.verdict import PaperAnalysisResult
 from src.llm_gateway.prompt_manager import PromptManager
+
+from ..core.paper import Paper
+from ..core.verdict import PaperAnalysisResult
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +22,10 @@ class VaultWriter:
     """Render and persist paper knowledge nodes as markdown files."""
 
     def __init__(self, settings: Settings, prompt_manager: PromptManager) -> None:
-        if settings.vault_root is None:
-            raise ValueError("`vault_root` is required to initialize VaultWriter.")
-
-        self.vault_inbox_dir: Path = settings.vault_root / "inbox"
+        configured_inbox = settings.require_path("inbox_folder")
+        if not configured_inbox.is_absolute():
+            raise ValueError("`inbox_folder` must resolve to an absolute path.")
+        self.vault_inbox_dir = configured_inbox
         self.prompt_manager = prompt_manager
         self.vault_inbox_dir.mkdir(parents=True, exist_ok=True)
 
@@ -35,17 +36,22 @@ class VaultWriter:
             paper=paper,
             analysis=analysis,
         )
-        safe_basename = self._sanitize_filename(paper.title)
-        output_path = self.vault_inbox_dir / f"{safe_basename}.md"
+        target_dir = self.vault_inbox_dir / analysis.verdict.value.replace(" ", "_")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        safe_moniker = self._sanitize_filename(analysis.short_moniker)
+        if safe_moniker:
+            output_path = target_dir / f"{paper.id}-{safe_moniker}.md"
+        else:
+            safe_paper_id = self._sanitize_filename(paper.id)
+            output_path = target_dir / f"{safe_paper_id}.md"
         output_path.write_text(rendered, encoding="utf-8")
         logger.info("Knowledge node written to: %s", output_path)
         return output_path
 
     @staticmethod
     def _sanitize_filename(title: str) -> str:
-        """Convert a paper title into a cross-platform-safe markdown filename."""
+        """Convert input text into a cross-platform-safe markdown filename fragment."""
         normalized = re.sub(_ILLEGAL_FILENAME_CHARS, "_", title).strip()
         normalized = re.sub(r"\s+", " ", normalized)
-        if not normalized:
-            normalized = "untitled_paper"
-        return normalized[:_MAX_BASENAME_LENGTH].rstrip(" .")
+        normalized = normalized[:_MAX_BASENAME_LENGTH].rstrip(" .")
+        return normalized

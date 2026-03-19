@@ -9,8 +9,9 @@ from datetime import datetime
 from pathlib import Path
 
 from src.core.config import Settings, load_config
-from src.core.paper import Paper
-from src.core.verdict import PaperAnalysisResult, VerdictDecision
+
+from ..core.paper import Paper
+from ..core.verdict import PaperAnalysisResult, VerdictDecision
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,8 @@ class PaperRouter:
 
     def _resolve_filtered_dir(self) -> Path:
         """Resolve archive root, defaulting to project-root papers/filtered."""
-        filtered_dir = self.settings.filtered_dir
+        pm = self.settings.paper_miner_or_default
+        filtered_dir = pm.filtered_dir
         if filtered_dir is None:
             filtered_dir = self.project_root / "papers" / "filtered"
         filtered_dir.mkdir(parents=True, exist_ok=True)
@@ -53,14 +55,16 @@ class PaperRouter:
 
     def _resolve_md_papers_raw_dir(self) -> Path:
         """Resolve raw markdown output root with config-first fallback."""
-        if self.settings.md_papers_raw_dir is not None:
-            return self.settings.md_papers_raw_dir
+        pm = self.settings.paper_miner_or_default
+        if pm.md_papers_raw_dir is not None:
+            return pm.md_papers_raw_dir
         return self.project_root / "papers" / "md_papers_raw"
 
     def _resolve_arxivpdf_dir(self) -> Path:
         """Resolve source PDF root with config-first fallback."""
-        if self.settings.arxivpdf_dir is not None:
-            return self.settings.arxivpdf_dir
+        pm = self.settings.paper_miner_or_default
+        if pm.arxivpdf_dir is not None:
+            return pm.arxivpdf_dir
         return self.project_root / "papers" / "arxivpdf"
 
     def route_and_cleanup(

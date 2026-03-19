@@ -1,5 +1,10 @@
 """Thin CLI entrypoint for batch markdown filtering workflow."""
 
+# 使用示例:
+#   python scripts/run_batch_filter.py
+#   python scripts/run_batch_filter.py --md-papers-dir papers/md_papers
+#   python scripts/run_batch_filter.py -l DEBUG
+
 from __future__ import annotations
 
 import argparse
@@ -17,7 +22,7 @@ PROJECT_ROOT = _project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.workflows.batch_filter import run_batch_filter  # noqa: E402
+from src.miners.paperminer.workflows.batch_filter import run_batch_filter  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:

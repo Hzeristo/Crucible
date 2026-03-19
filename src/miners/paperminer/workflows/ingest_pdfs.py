@@ -7,8 +7,9 @@ import shutil
 from pathlib import Path
 
 from src.core.config import Settings
-from src.io_adapter.paper_loader import PaperLoader
-from src.io_adapter.paper2md import MineruClient
+
+from ..io_adapter.paper_loader import PaperLoader
+from ..io_adapter.paper2md import MineruClient
 
 try:
     from tqdm import tqdm
@@ -38,9 +39,10 @@ def run_pdf_ingestion(
     settings = Settings()
     normalized_input = _normalize_against_project(input_dir, settings)
     normalized_raw_output = _normalize_against_project(output_dir, settings)
+    pm = settings.paper_miner_or_default
     target_clean_dir = (
         clean_dir
-        or settings.md_papers_dir
+        or pm.md_papers_dir
         or (settings.project_root / "papers" / "md_papers")
     )
     normalized_clean_dir = _normalize_against_project(target_clean_dir, settings)

@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import logging
 
-from src.core.paper import Paper
-from src.core.verdict import PaperAnalysisResult, VerdictDecision
 from src.llm_gateway.client import DeepSeekClient, OpenAICompatibleClient
 from src.llm_gateway.prompt_manager import PromptManager
+
+from ..core.paper import Paper
+from ..core.verdict import PaperAnalysisResult, VerdictDecision
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class PaperFilterEngine:
 
     def evaluate_paper(self, paper: Paper) -> PaperAnalysisResult:
         """Run reviewer prompt + LLM structured parsing for one paper."""
-        logger.info("Evaluating paper: %s", paper.title)
+        logger.info("[Crucible Engine] Evaluating payload: %s", paper.title)
         try:
             if len(paper.raw_text.strip()) < 80:
                 raise ValueError(
@@ -82,7 +83,7 @@ class PaperFilterEngine:
 
             if isinstance(result, PaperAnalysisResult):
                 logger.info(
-                    "Evaluation completed: %s | verdict=%s score=%s",
+                    "[Crucible Engine] Evaluation completed: %s | verdict=%s score=%s",
                     paper.title,
                     result.verdict.value,
                     result.score,
@@ -92,7 +93,7 @@ class PaperFilterEngine:
             validated = PaperAnalysisResult.model_validate(result)
 
             logger.info(
-                "Evaluation completed: %s | verdict=%s score=%s",
+                "[Crucible Engine] Evaluation completed: %s | verdict=%s score=%s",
                 paper.title,
                 validated.verdict.value,
                 validated.score,
@@ -102,6 +103,7 @@ class PaperFilterEngine:
             logger.exception("Evaluation failed for paper: %s", paper.title)
             return PaperAnalysisResult(
                 verdict=VerdictDecision.REJECT,
+                short_moniker="Fallback Reject",
                 score=0,
                 novelty_delta="N/A: evaluation degraded because analysis failed.",
                 mechanism_summary="Insufficient content or unexpected failure during evaluation.",

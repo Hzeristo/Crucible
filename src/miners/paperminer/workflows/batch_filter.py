@@ -7,13 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from src.core.config import Settings
-from src.core.verdict import VerdictDecision
-from src.decision.filter_engine import PaperFilterEngine
-from src.io_adapter.file_router import PaperRouter
-from src.io_adapter.paper_loader import PaperLoader
-from src.io_adapter.vault_writer import VaultWriter
 from src.llm_gateway.client import DeepSeekClient
 from src.llm_gateway.prompt_manager import PromptManager
+
+from ..core.verdict import VerdictDecision
+from ..decision.filter_engine import PaperFilterEngine
+from ..io_adapter.file_router import PaperRouter
+from ..io_adapter.paper_loader import PaperLoader
+from ..io_adapter.vault_writer import VaultWriter
 
 try:
     from tqdm import tqdm
@@ -34,8 +35,9 @@ def _resolve_md_papers_dir(settings: Settings, md_papers_dir: Path | None) -> Pa
             return (settings.project_root / candidate).resolve()
         return candidate.resolve()
 
-    if settings.md_papers_dir is not None:
-        return settings.md_papers_dir
+    pm = settings.paper_miner_or_default
+    if pm.md_papers_dir is not None:
+        return pm.md_papers_dir
 
     return (settings.project_root / "papers" / "md_papers").resolve()
 
@@ -102,15 +104,23 @@ def run_batch_filter(md_papers_dir: Path | None = None) -> dict[str, Any]:
 
             if result.verdict == VerdictDecision.MUST_READ:
                 stats["must_read"] += 1
-                stats["must_read_titles"].append(paper.title)
+                moniker = result.short_moniker.strip()
+                display_title = (
+                    f"{paper.id} {moniker}".strip() if moniker else str(paper.id)
+                )
+                output_path = writer.write_knowledge_node(paper, result)
+                stats["must_read_titles"].append(display_title)
                 stats["must_read_items"].append(
                     {
                         "score": int(result.score),
-                        "title": paper.title,
+                        "id": paper.id,
+                        "paper_id": paper.id,
+                        "short_moniker": moniker,
+                        "filename": output_path.name,
+                        "title": display_title,
                         "novelty": result.novelty_delta,
                     }
                 )
-                writer.write_knowledge_node(paper, result)
             elif result.verdict == VerdictDecision.SKIM:
                 stats["skim"] += 1
                 writer.write_knowledge_node(paper, result)

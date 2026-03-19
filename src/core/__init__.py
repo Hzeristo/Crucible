@@ -1,13 +1,6 @@
 """
-Project Chimera 核心领域模型
+The Crucible (熔炉) - Project Chimera 核心通用组件.
+业务领域模型已迁移至 src.miners.*
 """
 
-from .verdict import (
-    VerdictDecision,
-    PaperAnalysisResult,
-)
-
-__all__ = [
-    "VerdictDecision",
-    "PaperAnalysisResult",
-]
+__all__: list[str] = []

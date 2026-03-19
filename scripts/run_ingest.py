@@ -1,5 +1,11 @@
 """Thin CLI entrypoint for PDF ingestion workflow."""
 
+# 使用示例:
+#   python scripts/run_ingest.py
+#   python scripts/run_ingest.py --input-dir papers/arxivpdf --output-dir papers/md_papers_raw --clean-dir papers/md_papers
+#   python scripts/run_ingest.py --input-dir papers/otherpdf --output-dir papers/md_papers_raw --clean-dir papers/md_others
+#   python scripts/run_ingest.py -l DEBUG
+
 from __future__ import annotations
 
 import argparse
@@ -18,19 +24,20 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.core.config import Settings  # noqa: E402
-from src.workflows.ingest_pdfs import run_pdf_ingestion  # noqa: E402
+from src.miners.paperminer.workflows.ingest_pdfs import run_pdf_ingestion  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Build parser for PDF ingestion CLI."""
     settings = Settings()
-    default_input = settings.arxivpdf_dir or (
+    pm = settings.paper_miner_or_default
+    default_input = pm.arxivpdf_dir or (
         settings.project_root / "papers" / "arxivpdf"
     )
-    default_raw_output = settings.md_papers_raw_dir or (
+    default_raw_output = pm.md_papers_raw_dir or (
         settings.project_root / "papers" / "md_papers_raw"
     )
-    default_clean_output = settings.md_papers_dir or (
+    default_clean_output = pm.md_papers_dir or (
         settings.project_root / "papers" / "md_papers"
     )
 

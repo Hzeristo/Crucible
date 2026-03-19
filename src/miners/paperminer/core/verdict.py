@@ -1,4 +1,4 @@
-"""Core verdict data models for paper filtering."""
+"""Verdict data models for paper filtering (PaperMiner domain)."""
 
 from enum import Enum
 
@@ -20,6 +20,10 @@ class PaperAnalysisResult(BaseModel):
 
     verdict: VerdictDecision = Field(
         description='Decision: "Reject" / "Skim" / "Must Read".'
+    )
+    short_moniker: str = Field(
+        min_length=1,
+        description="A 2-4 word memorable nickname/abbreviation for this paper based on its core contribution (e.g., 'DeepSeek Engram', 'MemGPT'). Exclude the raw paper ID or dates.",
     )
     score: int = Field(
         ge=0,

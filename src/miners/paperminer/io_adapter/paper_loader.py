@@ -6,7 +6,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from src.core.paper import Paper
+from ..core.paper import Paper
 
 logger = logging.getLogger(__name__)
 

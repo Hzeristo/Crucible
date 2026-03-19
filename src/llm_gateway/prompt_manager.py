@@ -44,7 +44,7 @@ class PromptManager:
         """
         渲染指定模板
         :param template_name: e.g., 'tasks/phase3_filter.j2'
-        :param kwargs: 传递给模板的变量 (paper, json_schema 等)
+        :param kwargs: 传递给模板的变量 (任意键值对，如 payload, json_schema 等)
         :return: 渲染后的 String
         """
         if Path(template_name).is_absolute() or ".." in Path(template_name).parts:

@@ -3,11 +3,36 @@
 from __future__ import annotations
 
 import logging
-from urllib import parse, request
+from typing import Any
+
+import requests
+from tenacity import RetryCallState, retry, stop_after_attempt, wait_exponential
 
 from src.core.config import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def _log_before_retry(state: RetryCallState) -> None:
+    """Emit warning logs before each Telegram retry attempt."""
+    if state.outcome is None:
+        return
+    exc = state.outcome.exception()
+    if exc is None:
+        return
+    logger.warning(
+        "Telegram send failed at attempt %s/%s; retrying due to %s: %s",
+        state.attempt_number,
+        5,
+        type(exc).__name__,
+        exc,
+    )
+
+
+def _swallow_retry_error(_: RetryCallState) -> None:
+    """Return None after final retry so workflow continues."""
+    logger.error("Telegram send exhausted all retries; skip notification.")
+    return None
 
 
 class TelegramNotifier:
@@ -29,31 +54,40 @@ class TelegramNotifier:
                 "Telegram bot token/chat id missing; notification will be skipped."
             )
 
-    def send_summary(self, html_message: str) -> None:
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=4, max=30),
+        before_sleep=_log_before_retry,
+        reraise=False,
+        retry_error_callback=_swallow_retry_error,
+    )
+    def _send_summary_with_retry(
+        self, html_message: str, reply_markup: dict[str, Any] | None = None
+    ) -> None:
+        """Send HTML summary to Telegram with transient failure retries."""
+        if not self._bot_token or not self._chat_id:
+            logger.warning("Telegram credentials missing. Skip sending.")
+            return
+
+        api_url = f"https://api.telegram.org/bot{self._bot_token}/sendMessage"
+        payload: dict[str, Any] = {
+            "chat_id": self._chat_id,
+            "text": html_message,
+            "parse_mode": "HTML",
+        }
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        response = requests.post(api_url, json=payload, timeout=15)
+        response.raise_for_status()
+        logger.info("Morning broadcast successfully transmitted to BB Channel.")
+
+    def send_summary(
+        self, html_message: str, reply_markup: dict[str, Any] | None = None
+    ) -> None:
         """Send HTML summary to Telegram in a non-critical path."""
         try:
-            if not self._bot_token or not self._chat_id:
-                return
-
-            api_url = f"https://api.telegram.org/bot{self._bot_token}/sendMessage"
-            payload = parse.urlencode(
-                {
-                    "chat_id": self._chat_id,
-                    "text": html_message,
-                    "parse_mode": "HTML",
-                }
-            ).encode("utf-8")
-            req = request.Request(
-                api_url,
-                data=payload,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                method="POST",
+            self._send_summary_with_retry(
+                html_message=html_message, reply_markup=reply_markup
             )
-            with request.urlopen(req, timeout=10) as response:
-                status_code = getattr(response, "status", None)
-                if status_code is not None and status_code >= 400:
-                    logger.error(
-                        "Telegram sendMessage returned HTTP status %s", status_code
-                    )
         except Exception as exc:
             logger.error("Failed to send Telegram summary notification: %s", exc)

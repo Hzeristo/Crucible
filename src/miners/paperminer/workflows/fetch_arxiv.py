@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from src.io_adapter.arxiv_fetcher import ArxivFetcher
+from ..io_adapter.arxiv_fetcher import ArxivFetcher
 
 logger = logging.getLogger(__name__)
 
