@@ -7,8 +7,8 @@ import logging
 from typing import Any
 from urllib.parse import quote
 
-from src.core.config import Settings
-from src.io_adapter.telegram_notifier import TelegramNotifier
+from src.crucible.core.config import Settings
+from src.crucible.io_adapter.telegram_notifier import TelegramNotifier
 
 from .batch_filter import run_batch_filter
 from .fetch_arxiv import run_arxiv_fetch

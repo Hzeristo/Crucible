@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Sequence, Type
+from typing import AsyncGenerator, Sequence, Type
 
-from openai import APIConnectionError, APITimeoutError, OpenAI
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, OpenAI
 from pydantic import BaseModel, SecretStr, ValidationError
 from tenacity import (
     RetryCallState,
@@ -16,8 +16,8 @@ from tenacity import (
     wait_exponential,
 )
 
-from src.core.config import Settings, load_config
-from src.llm_gateway.janitor import clean_json_output
+from src.crucible.core.config import Settings, load_config
+from src.crucible.llm_gateway.janitor import clean_json_output
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +103,11 @@ class OpenAICompatibleClient:
             base_url=base_url,
             timeout=timeout_seconds,
         )
+        self._async_client = AsyncOpenAI(
+            api_key=resolved_api_key,
+            base_url=base_url,
+            timeout=timeout_seconds,
+        )
 
     @retry(
         stop=stop_after_attempt(3),
@@ -176,6 +181,40 @@ class OpenAICompatibleClient:
                 response_model=response_model,
             )
             raise
+
+    async def generate_raw_text(self, messages: list[dict[str, str]]) -> str:
+        """
+        非流式请求：发送消息列表，返回完整回答。
+        用于 ReAct 闭门思考阶段，避免流式截断带来的状态机灾难。
+        """
+        response = await self._async_client.chat.completions.create(
+            model=self.model,
+            temperature=0.7,
+            messages=[{"role": m["role"], "content": m["content"]} for m in messages],
+        )
+        if not response.choices or response.choices[0].message.content is None:
+            raise RuntimeError(
+                f"{self.provider_name} API returned empty message content. "
+                f"Response: {response!r}"
+            )
+        return response.choices[0].message.content
+
+    async def stream_generate(
+        self, messages: list[dict[str, str]]
+    ) -> AsyncGenerator[str, None]:
+        """
+        流式请求：发送消息列表，逐个 yield 文本片段。
+        用于 ReAct 终极推流阶段，提供打字机体验。
+        """
+        stream = await self._async_client.chat.completions.create(
+            model=self.model,
+            temperature=0.7,
+            messages=[{"role": m["role"], "content": m["content"]} for m in messages],
+            stream=True,
+        )
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
 
 
 class DeepSeekClient(OpenAICompatibleClient):

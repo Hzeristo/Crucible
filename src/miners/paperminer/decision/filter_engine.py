@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import logging
 
-from src.llm_gateway.client import DeepSeekClient, OpenAICompatibleClient
-from src.llm_gateway.prompt_manager import PromptManager
+from src.crucible.llm_gateway.client import DeepSeekClient, OpenAICompatibleClient
+from src.crucible.llm_gateway.prompt_manager import PromptManager
 
 from ..core.paper import Paper
 from ..core.verdict import PaperAnalysisResult, VerdictDecision

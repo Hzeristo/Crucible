@@ -11,7 +11,7 @@ from pathlib import Path
 
 import requests
 
-from src.core.config import Settings
+from src.crucible.core.config import Settings
 
 logger = logging.getLogger(__name__)
 

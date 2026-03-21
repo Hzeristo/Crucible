@@ -6,7 +6,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from src.core.config import Settings
+from src.crucible.core.config import Settings
 
 from ..io_adapter.paper_loader import PaperLoader
 from ..io_adapter.paper2md import MineruClient

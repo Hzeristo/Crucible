@@ -8,7 +8,8 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from src.core.config import Settings, load_config
+from src.crucible.core.config import Settings, load_config
+from src.crucible.utils.filename import compute_fancy_basename
 
 from ..core.paper import Paper
 from ..core.verdict import PaperAnalysisResult, VerdictDecision
@@ -91,8 +92,15 @@ class PaperRouter:
         verdict_dir = filtered_dir / verdict.value.replace(" ", "_")
         verdict_dir.mkdir(parents=True, exist_ok=True)
 
+        analysis = (
+            analysis_or_verdict
+            if isinstance(analysis_or_verdict, PaperAnalysisResult)
+            else None
+        )
+        fancy_basename = compute_fancy_basename(paper, analysis)
+
         md_path = Path(paper.content_path)
-        md_target = verdict_dir / md_path.name
+        md_target = verdict_dir / f"{fancy_basename}.md"
         try:
             moved_md = Path(shutil.move(str(md_path), str(md_target)))
             logger.info("Moved markdown to archive: %s -> %s", md_path, moved_md)
@@ -123,7 +131,7 @@ class PaperRouter:
             logger.warning("Failed to remove raw folder: %s error=%s", raw_dir, exc)
 
         pdf_source = self._resolve_arxivpdf_dir() / f"{paper.id}.pdf"
-        pdf_target = verdict_dir / pdf_source.name
+        pdf_target = verdict_dir / f"{fancy_basename}.pdf"
         try:
             if pdf_source.exists():
                 moved_pdf = Path(shutil.move(str(pdf_source), str(pdf_target)))

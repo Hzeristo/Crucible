@@ -21,7 +21,7 @@ class PromptManager:
 
     def __init__(self, template_dir: str | Path | None = None) -> None:
         if template_dir is None:
-            root = Path(__file__).resolve().parents[2]
+            root = Path(__file__).resolve().parents[3]
             self.template_path = root / "prompts"
         else:
             self.template_path = Path(template_dir).expanduser().resolve()

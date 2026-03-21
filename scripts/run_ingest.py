@@ -23,7 +23,7 @@ PROJECT_ROOT = _project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.core.config import Settings  # noqa: E402
+from src.crucible.core.config import Settings  # noqa: E402
 from src.miners.paperminer.workflows.ingest_pdfs import run_pdf_ingestion  # noqa: E402
 
 

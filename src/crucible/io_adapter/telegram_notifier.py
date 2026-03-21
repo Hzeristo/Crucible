@@ -8,7 +8,7 @@ from typing import Any
 import requests
 from tenacity import RetryCallState, retry, stop_after_attempt, wait_exponential
 
-from src.core.config import Settings
+from src.crucible.core.config import Settings
 
 logger = logging.getLogger(__name__)
 

@@ -6,9 +6,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from src.core.config import Settings
-from src.llm_gateway.client import DeepSeekClient
-from src.llm_gateway.prompt_manager import PromptManager
+from src.crucible.core.config import Settings
+from src.crucible.llm_gateway.client import DeepSeekClient
+from src.crucible.llm_gateway.prompt_manager import PromptManager
 
 from ..core.verdict import VerdictDecision
 from ..decision.filter_engine import PaperFilterEngine

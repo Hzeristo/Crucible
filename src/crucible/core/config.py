@@ -18,8 +18,8 @@ from pydantic_settings import (
 
 
 def _repo_root() -> Path:
-    """Resolve repository root from this module location."""
-    return Path(__file__).resolve().parents[2]
+    """Resolve repository root from this module location (src/crucible/core/config.py)."""
+    return Path(__file__).resolve().parents[3]
 
 
 PROJECT_ROOT = _repo_root()
