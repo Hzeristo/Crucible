@@ -4,11 +4,11 @@ Oligo 工具注册表：将所有可调用工具集中管理，供 Chimera Agent
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
-from src.oligo.tools.mock_vault import mock_search_vault
+from src.oligo.tools.obsidian_search import search_vault
 
 # 工具名 -> 异步可调用对象
-TOOL_REGISTRY: dict[str, Callable[..., str]] = {
-    "search_vault": mock_search_vault,
+TOOL_REGISTRY: dict[str, Callable[..., Awaitable[str]]] = {
+    "search_vault": search_vault,
 }

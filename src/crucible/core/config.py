@@ -126,7 +126,8 @@ class Settings(BaseSettings):
     # --- Generic Crucible ---
     project_root: Path = Field(default_factory=_repo_root)
     config_file: Path = Field(default_factory=lambda: _repo_root() / "config.yaml")
-    vault_root: Path | None = None
+    # 绝对路径：本机 Obsidian Vault 根目录（见 config.example.yaml）
+    vault_root: Path
     inbox_folder: Path | None = None
     log_level: str = "INFO"
 
