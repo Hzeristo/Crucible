@@ -61,14 +61,14 @@ def main() -> int:
     try:
         stats = run_batch_filter(md_papers_dir=args.md_papers_dir)
         print("Batch filter completed.")
-        print(f"Source: {stats.get('source_dir', 'N/A')}")
-        print(f"Total: {stats.get('total', 0)}")
-        print(f"Must Read: {stats.get('must_read', 0)}")
-        print(f"Skim: {stats.get('skim', 0)}")
-        print(f"Reject: {stats.get('reject', 0)}")
-        print(f"Errors: {stats.get('errors', 0)}")
-        print(f"Must Read Titles: {stats.get('must_read_titles', [])}")
-        return 0 if int(stats.get("errors", 0)) == 0 else 1
+        print(f"Source: {stats.source_dir or 'N/A'}")
+        print(f"Total: {stats.total}")
+        print(f"Must Read: {stats.must_read}")
+        print(f"Skim: {stats.skim}")
+        print(f"Reject: {stats.reject}")
+        print(f"Errors: {stats.errors}")
+        print(f"Must Read Titles: {stats.must_read_titles}")
+        return 0 if stats.errors == 0 else 1
     except Exception:
         logging.getLogger(__name__).exception("run_batch_filter script failed.")
         return 99

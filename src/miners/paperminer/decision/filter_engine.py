@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
-from src.crucible.llm_gateway.client import DeepSeekClient, OpenAICompatibleClient
+from src.crucible.llm_gateway.client import OpenAICompatibleClient
 from src.crucible.llm_gateway.prompt_manager import PromptManager
 
 from ..core.paper import Paper
@@ -49,7 +49,15 @@ class PaperFilterEngine:
         llm_client: OpenAICompatibleClient | None = None,
         prompt_manager: PromptManager | None = None,
     ) -> None:
-        self.llm_client = llm_client or DeepSeekClient()
+        if llm_client is None:
+            from src.crucible.core.config import load_config
+            settings = load_config()
+            llm_client = OpenAICompatibleClient(
+                api_key=settings.OPENAI_API_KEY.get_secret_value() if settings.OPENAI_API_KEY else None,
+                base_url=settings.default_llm_base_url,
+                model=settings.default_llm_model
+            )
+        self.llm_client = llm_client
         self.prompt_manager = prompt_manager or PromptManager()
 
     def evaluate_paper(self, paper: Paper) -> PaperAnalysisResult:
@@ -103,7 +111,7 @@ class PaperFilterEngine:
             logger.exception("Evaluation failed for paper: %s", paper.title)
             return PaperAnalysisResult(
                 verdict=VerdictDecision.REJECT,
-                short_moniker="Fallback Reject",
+                short_moniker="EvalDegraded",
                 score=0,
                 novelty_delta="N/A: evaluation degraded because analysis failed.",
                 mechanism_summary="Insufficient content or unexpected failure during evaluation.",

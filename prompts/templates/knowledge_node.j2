@@ -5,53 +5,74 @@ title: "{{ paper.title | replace('"', '\\"') }}"
 tags: [knowledge, raw_data, "📄/{{ analysis.verdict.value | lower | replace(' ', '_') }}"]
 chimera_status: unverified_by_human
 score: {{ analysis.score }}/10
-
-graph_edges:
-  used_by: []
-  related_work: []
+year: "{{ paper.year | default(paper.metadata.year, true) | default('TODO', true) | replace('"', '\\"') }}"
+authors: "{{ paper.authors | default(paper.metadata.authors, true) | default('TODO', true) | replace('"', '\\"') }}"
 ---
 
-# 📑 {{ paper.title }}
+# 📑 {{ paper.id }} - {{ analysis.short_moniker }}
 
-> **Status**: triage / raw
-> **AI Verdict**: **{{ analysis.verdict.value }}**
-
----
-
-## 0. Source
-- **Arxiv ID**: {{ paper.id }}
-- **PDF Path**: `{{ paper.content_path }}`
+> **Status**: triage / deep_read / stabilized
+> **Verdict**: **{{ analysis.verdict.value }}** ({{ analysis.score }}/10) | **Processed**: {{ current_date }}
+- **PDF Asset**: [[{{ note_asset_basename }}.pdf]]
 
 ---
 
-## 1. Meta Summary (Reviewer Zero's Cold Read)
-> ⚠️ **RULE**: Strictly factual. Derived from Phase-3 extraction.
+## 1. Core Paradigm Shift (核心范式转移)
+> 🤖 **[BB's Analysis]**: {{ analysis.novelty_delta }}
 
-- **AI's Novelty Delta**:
-  {{ analysis.novelty_delta }}
+- **My Critique (我的修正)**: <INSTRUCTION: BB 说得对吗？有什么漏洞？>
 
-- **Mechanism Summary**:
-  {{ analysis.mechanism_summary }}
+## 2. Mechanism & Implementation (机制解剖)
+> 🤖 **[BB's Breakdown]**: {{ analysis.mechanism_summary }}
+
+> 🤖 **[Core Algorithm Steps]**:
+{% for step in analysis.core_algorithm_steps %}
+> {{ loop.index }}. {{ step }}
+{% else %}
+> - N/A
+{% endfor %}
+
+- **The Math / Architecture**: <INSTRUCTION: Drop the core equation or diagram here if needed.>
 
 ---
 
-## 2. Objective Structure (⚠️ TODO for Deep Read)
-### Method / Architecture
-<INSTRUCTION: Trigger Phase-4 Agent or fill manually>
+## 3. Experimental Setup & Falsifiability (实验拷问)
 
-### Experimental Results
-<INSTRUCTION: Metrics, Baselines, Dataset, Ablations>
+> 🤖 **[BB's Read - How they tested it]**:
 
----
+- **Tested On (Datasets)**: {{ analysis.evaluation_datasets | join(", ") | default("N/A") }}
+- **Baselines Engaged**: {{ analysis.baseline_models | join(", ") | default("N/A") }}
 
-## 3. Critical Flaws (AI-Detected)
-{% if analysis.critical_flaws %}
-{% for flaw in analysis.critical_flaws %}
-- [ ] {{ flaw }}
+> {{ analysis.experimental_setup | trim | replace('\r\n', '\n') | replace('\r', '\n') | replace('\n', '\n> ') }}
+
+### 3.1 The Ablation Studies
+{% if analysis.ablation_findings %}
+{% for finding in analysis.ablation_findings %}
+> 🔍 [BB]: {{ finding }}
 {% endfor %}
 {% else %}
-- N/A
+> 🔍 [BB]: No explicit ablation findings extracted. (Suspicious).
 {% endif %}
 
+- **My Critique on Rigor**: <INSTRUCTION: Did they cheat the prompt? Are the baselines strawmen?>
+
 ---
-*Processed and digested by Chimera. 📺 [Broadcasted via BB Channel]*
+
+## 4. Vulnerabilities & Attack Vectors (攻击面)
+{% if analysis.critical_flaws %}
+{% for flaw in analysis.critical_flaws %}
+> 💥 [BB]: {{ flaw }}
+{% endfor %}
+{% else %}
+> 💥 [BB]: None detected (Highly Suspicious).
+{% endif %}
+
+- [ ] **Actionable Attack**: <INSTRUCTION: How can I beat this baseline or exploit this flaw?>
+
+---
+
+## 5. Connections (Graph Edges)
+- **Extracted Thoughts**: [[Thought/ ...]]
+
+---
+*📺 [Broadcasted via BB Channel]*

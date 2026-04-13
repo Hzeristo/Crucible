@@ -98,6 +98,53 @@ class ArxivFetcher:
         logger.info("Fetched %s arXiv records since %s", len(records), cutoff_date)
         return records
 
+    def fetch_single_metadata(self, arxiv_id: str) -> dict | None:
+        """
+        Resolve official year and author list for one arXiv id via the Atom API.
+
+        Returns:
+            ``{"year": "<str>", "authors": "<comma-separated names>"}`` or ``None`` on failure.
+        """
+        try:
+            response = requests.get(
+                self.API_URL,
+                params={"id_list": arxiv_id},
+                headers=self.REQUEST_HEADERS,
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+            root = ET.fromstring(response.text)
+        except requests.Timeout:
+            logger.debug("fetch_single_metadata timed out for %s", arxiv_id)
+            return None
+        except requests.RequestException:
+            logger.debug(
+                "fetch_single_metadata request failed for %s", arxiv_id, exc_info=True
+            )
+            return None
+        except ET.ParseError:
+            logger.debug(
+                "fetch_single_metadata XML parse failed for %s", arxiv_id, exc_info=True
+            )
+            return None
+
+        try:
+            atom_ns = "{http://www.w3.org/2005/Atom}"
+            entries = root.findall(f"{atom_ns}entry")
+            if not entries:
+                return None
+            entry = entries[0]
+            submitted = self._extract_submitted_date(entry, atom_ns)
+            if submitted is None:
+                return None
+            authors = self._extract_entry_authors(entry, atom_ns)
+            return {"year": str(submitted.year), "authors": authors}
+        except Exception:
+            logger.debug(
+                "fetch_single_metadata extraction failed for %s", arxiv_id, exc_info=True
+            )
+            return None
+
     def download_pdfs(self, paper_records: list[dict], target_dir: Path) -> int:
         """
         Download paper PDFs to target directory with idempotent behavior.
@@ -240,3 +287,13 @@ class ArxivFetcher:
         except ValueError:
             return None
         return dt.astimezone(timezone.utc).date()
+
+    @staticmethod
+    def _extract_entry_authors(entry: ET.Element, atom_ns: str) -> str:
+        """Join all Atom ``<author><name>`` values with comma-space."""
+        names: list[str] = []
+        for author_el in entry.findall(f"{atom_ns}author"):
+            name_el = author_el.find(f"{atom_ns}name")
+            if name_el is not None and name_el.text:
+                names.append(" ".join(name_el.text.split()))
+        return ", ".join(names)

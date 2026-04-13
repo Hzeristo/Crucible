@@ -32,19 +32,31 @@ class ChatMessage(BaseModel):
 
 class AgentInvokeRequest(BaseModel):
     """
-    Agent 调用传输协议契约。
+    与 Astrocyte 物理载荷对齐的调用契约。
 
-    与 Astrocyte 前端发包格式契合，messages 为强类型，persona/skill 为可选的上下文注入变量。
+    人设与技能由 ``system_core`` / ``skill_override`` 承载；``ChimeraAgent`` 在引擎内做晚期绑定。
+    ``allowed_tools`` 预留权限；``persona_id`` 不参与决策，仅便于日志关联。
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    messages: list[ChatMessage] = Field(
-        ..., description="The conversation history and the current user prompt"
-    )
+    api_key: str = Field(..., description="LLM API key from gateway (may be empty if server defaults apply).")
+    base_url: str = Field(..., description="Chat/completions API base URL from gateway.")
+    model_name: str = Field(..., description="Model id from gateway.")
     persona_id: str | None = Field(
-        default=None, description="Optional persona ID for context injection"
+        default=None,
+        description="Optional persona id for logging only; not used for routing decisions.",
     )
-    skill_id: str | None = Field(
-        default=None, description="Optional skill template ID for context injection"
+    system_core: str = Field(
+        ...,
+        description="The full system prompt payload fetched by Rust (persona baseline).",
+    )
+    skill_override: str | None = Field(default=None)
+    allowed_tools: list[str] | None = Field(
+        default=None,
+        description="Reserved for future heavy agent tool allowlists.",
+    )
+    messages: list[ChatMessage] = Field(
+        ...,
+        description="Clean user/assistant transcript and current turn (no gateway-prefixed system).",
     )

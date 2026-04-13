@@ -8,6 +8,7 @@ Task: Calculate the Information Gain of the provided paper.
 1. **Novelty Delta**: What specifically does this add over strong memory/agent baselines?
 2. **Mechanism**: Extract the core trick.
 3. **Flaws**: Find the critical flaws.
+4. **Baselines, datasets, algorithm steps** (schema fields `baseline_models`, `evaluation_datasets`, `core_algorithm_steps`): You must also extract the specific baselines the authors compared against, the datasets they used for evaluation, and provide a brief step-by-step breakdown of their core algorithm or architecture. If the paper does not specify these, return empty arrays `[]`.
 
 [OUTPUT FORMAT]
 You MUST output ONLY valid JSON. The JSON must strictly conform to the following JSON Schema:
@@ -19,6 +20,8 @@ You MUST output ONLY valid JSON. The JSON must strictly conform to the following
 - Do not add any text before or after the JSON.
 - Make sure Enum values exactly match the allowed values in the schema.
 - Arrays must be empty [] if no data found.
+- `short_moniker`: EXACTLY ONE capitalized proper noun for the core system/model (e.g. `HippoRAG`, `MemGPT`). No extra descriptive words (`Architecture`, `Graph`, `Memory`, …). If none exists, output ONE invented portmanteau word (PascalCase / single token).
+- For any string field where the schema description asks for multi-line structure (notably `experimental_setup`), put real line breaks inside the JSON string using the standard JSON newline escape (backslash + `n`) between sections; do not flatten into one line.
 
 [PAPER CONTENT START]
 Paper ID: {{ paper.id }}

@@ -1,10 +1,8 @@
 """Thin CLI entrypoint for PDF ingestion workflow."""
 
 # 使用示例:
-#   python scripts/run_ingest.py
-#   python scripts/run_ingest.py --input-dir papers/arxivpdf --output-dir papers/md_papers_raw --clean-dir papers/md_papers
-#   python scripts/run_ingest.py --input-dir papers/otherpdf --output-dir papers/md_papers_raw --clean-dir papers/md_others
-#   python scripts/run_ingest.py -l DEBUG
+#   python scripts/run_ingest.py -i papers/arxivpdf
+#   python scripts/run_ingest.py -i playground/pdfs -o playground/md_clean
 
 from __future__ import annotations
 
@@ -30,52 +28,34 @@ from src.miners.paperminer.workflows.ingest_pdfs import run_pdf_ingestion  # noq
 def build_parser() -> argparse.ArgumentParser:
     """Build parser for PDF ingestion CLI."""
     settings = Settings()
-    pm = settings.paper_miner_or_default
-    default_input = pm.arxivpdf_dir or (
-        settings.project_root / "papers" / "arxivpdf"
-    )
-    default_raw_output = pm.md_papers_raw_dir or (
-        settings.project_root / "papers" / "md_papers_raw"
-    )
-    default_clean_output = pm.md_papers_dir or (
-        settings.project_root / "papers" / "md_papers"
-    )
+    default_raw_output = settings.playground_dir / "md_raw"
+    default_clean_output = settings.playground_dir / "md_clean"
 
     parser = argparse.ArgumentParser(
         description="Run MinerU ingestion for all PDFs in a directory."
     )
     parser.add_argument(
+        "-i",
         "--input-dir",
         type=Path,
-        default=default_input,
+        required=True,
         help="Directory containing source PDFs.",
     )
     parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=default_raw_output,
-        help="Directory where MinerU raw markdown folders are generated.",
-    )
-    parser.add_argument(
-        "--clean-dir",
+        "-o",
+        "--out",
         type=Path,
         default=default_clean_output,
-        help="Directory where cleaned markdown files are extracted.",
+        help="Directory where cleaned markdown files are extracted (defaults to playground).",
     )
-    parser.add_argument(
-        "-l",
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Logging verbosity level.",
-    )
+    parser.set_defaults(raw_dir=default_raw_output)
     return parser
 
 
-def configure_logging(level: str) -> None:
+def configure_logging() -> None:
     """Configure root logging for this script."""
     logging.basicConfig(
-        level=getattr(logging, level),
+        level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
 
@@ -84,18 +64,18 @@ def main() -> int:
     """Parse CLI args, execute PDF ingestion, and print summary."""
     parser = build_parser()
     args = parser.parse_args()
-    configure_logging(args.log_level)
+    configure_logging()
 
     try:
         success_count = run_pdf_ingestion(
             input_dir=args.input_dir,
-            output_dir=args.output_dir,
-            clean_dir=args.clean_dir,
+            output_dir=args.raw_dir,
+            clean_dir=args.out,
         )
         print("PDF ingestion completed.")
         print(f"Input dir: {Path(args.input_dir)}")
-        print(f"Raw output dir: {Path(args.output_dir)}")
-        print(f"Clean output dir: {Path(args.clean_dir)}")
+        print(f"Raw output dir: {Path(args.raw_dir)}")
+        print(f"Clean output dir: {Path(args.out)}")
         print(f"Success count: {success_count}")
         return 0
     except FileNotFoundError as exc:

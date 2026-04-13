@@ -5,10 +5,13 @@ Obsidian 金库本地文本检索：pathlib 遍历 + 轻量打分，无向量库
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from pathlib import Path
 
 from src.crucible.core.config import load_config
+
+logger = logging.getLogger(__name__)
 
 _TOKEN_RE = re.compile(r"\S+")
 
@@ -53,8 +56,12 @@ def _snippet(body: str, tokens: list[str], radius: int = 200) -> str:
 
 
 def _ripper_sync(vault: Path, query: str, top_k: int) -> str:
+    logger.info(
+        f"[X-RAY Ripper] Searching vault at: {vault} for query: {query!r}"
+    )
     tokens = _tokens(query)
     if not tokens:
+        logger.warning("[X-RAY Ripper] Query produced 0 valid tokens.")
         return f"[Exocortex returned 0 results for query: {query}]"
 
     ranked: list[tuple[int, Path, str]] = []
@@ -80,6 +87,9 @@ def _ripper_sync(vault: Path, query: str, top_k: int) -> str:
         if sc > 0:
             ranked.append((sc, path, raw))
 
+    logger.info(
+        f"[X-RAY Ripper] Scan complete. Found {len(ranked)} matching documents."
+    )
     ranked.sort(key=lambda x: (-x[0], x[1].name.lower()))
     top = ranked[: max(0, top_k)]
 

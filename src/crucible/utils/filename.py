@@ -6,6 +6,7 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from src.optics.schema import DeepReadAtlas
     from src.miners.paperminer.core.paper import Paper
     from src.miners.paperminer.core.verdict import PaperAnalysisResult
 
@@ -21,13 +22,18 @@ def sanitize_filename(title: str) -> str:
     return normalized
 
 
-def compute_fancy_basename(paper: "Paper", analysis: "PaperAnalysisResult | None") -> str:
+def compute_fancy_basename(
+    paper: "Paper",
+    analysis: "PaperAnalysisResult | DeepReadAtlas | None",
+) -> str:
     """
-    计算统一的归档文件名前缀（不含扩展名）。
-    与 VaultWriter 的命名逻辑一致：paper.id + short_moniker。
+    统一的笔记 / PDF 资产 basename（无扩展名）：``{paper.id}-{short_moniker}``（与 Obsidian 一致）。
+    ``short_moniker`` 经 :func:`sanitize_filename` 清洗；无 analysis 时退化为 ``paper.id``。
     """
     if analysis is not None:
-        safe_moniker = sanitize_filename(analysis.short_moniker)
-        if safe_moniker:
-            return f"{paper.id}-{safe_moniker}"
+        raw = getattr(analysis, "short_moniker", None)
+        if raw:
+            safe_moniker = sanitize_filename(raw)
+            if safe_moniker:
+                return f"{paper.id}-{safe_moniker}"
     return sanitize_filename(paper.id)

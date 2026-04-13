@@ -10,7 +10,7 @@ from urllib.parse import quote
 from src.crucible.core.config import Settings
 from src.crucible.io_adapter.telegram_notifier import TelegramNotifier
 
-from .batch_filter import run_batch_filter
+from .batch_filter import BatchFilterStats, run_batch_filter
 from .fetch_arxiv import run_arxiv_fetch
 from .ingest_pdfs import run_pdf_ingestion
 
@@ -55,73 +55,68 @@ def run_daily_pipeline() -> None:
 
 
 def _render_daily_report(
-    stats: dict[str, Any],
+    stats: BatchFilterStats,
     new_pdfs_count: int,
 ) -> tuple[str, dict[str, list[list[dict[str, str]]]] | None]:
     """Render Telegram-safe HTML summary and inline keyboard payload."""
-    total = int(stats.get("total", 0))
-    must_read = int(stats.get("must_read", 0))
-    skim = int(stats.get("skim", 0))
-    reject = int(stats.get("reject", 0))
+    total = int(stats.total)
+    must_read = int(stats.must_read)
+    skim = int(stats.skim)
+    reject = int(stats.reject)
 
-    items_raw = stats.get("must_read_items", [])
+    items_raw = stats.must_read_items
     must_read_items: list[dict[str, Any]] = []
     inline_keyboard: list[list[dict[str, str]]] = []
-    if isinstance(items_raw, list):
-        for idx, item in enumerate(items_raw, start=1):
-            if not isinstance(item, dict):
-                continue
-            score = item.get("score", 0)
-            paper_id = str(item.get("id", item.get("paper_id", ""))).strip()
-            filename = str(item.get("filename", "")).strip()
-            short_moniker = str(item.get("short_moniker", "")).strip()
-            legacy_title = str(item.get("title", "")).strip()
-            if short_moniker:
-                title = f"{paper_id} {short_moniker}".strip() if paper_id else short_moniker
-            elif legacy_title:
-                title = legacy_title
-            else:
-                title = paper_id
-            novelty = item.get("novelty", "")
-            encoded_id = quote(paper_id, safe="")
-            arxiv_url = f"https://arxiv.org/abs/{encoded_id}" if paper_id else "#"
-            obsidian_url = (
-                f"https://chimeravaultrouter.haydenshui.workers.dev/?id={encoded_id}"
-                if paper_id
-                else "#"
-            )
-            short_for_button_paper = f"Paper {encoded_id}"
-            short_for_button_obsidian = f"Node for {short_moniker}" if short_moniker else f"Node for {encoded_id}"
-            inline_keyboard.append(
-                [
-                    {"text": f"🌐 {short_for_button_paper}", "url": arxiv_url},
-                    {"text": f"🧠 {short_for_button_obsidian}", "url": obsidian_url},
-                ]
-            )
-            must_read_items.append(
-                {
-                    "score": int(score) if isinstance(score, (int, float, str)) else 0,
-                    "id": paper_id,
-                    "filename": filename,
-                    "title": html.escape(str(title), quote=False),
-                    "novelty": html.escape(str(novelty), quote=False),
-                }
-            )
+    for item in items_raw:
+        score = item.score
+        paper_id = str(item.id).strip()
+        filename = str(item.filename).strip()
+        short_moniker = str(item.short_moniker).strip()
+        legacy_title = str(item.title).strip()
+        if short_moniker:
+            title = f"{paper_id} {short_moniker}".strip() if paper_id else short_moniker
+        elif legacy_title:
+            title = legacy_title
+        else:
+            title = paper_id
+        novelty = item.novelty
+        encoded_id = quote(paper_id, safe="")
+        arxiv_url = f"https://arxiv.org/abs/{encoded_id}" if paper_id else "#"
+        obsidian_url = (
+            f"https://chimeravaultrouter.haydenshui.workers.dev/?id={encoded_id}"
+            if paper_id
+            else "#"
+        )
+        short_for_button_paper = f"Paper {encoded_id}"
+        short_for_button_obsidian = f"Node for {short_moniker}" if short_moniker else f"Node for {encoded_id}"
+        inline_keyboard.append(
+            [
+                {"text": f"🌐 {short_for_button_paper}", "url": arxiv_url},
+                {"text": f"🧠 {short_for_button_obsidian}", "url": obsidian_url},
+            ]
+        )
+        must_read_items.append(
+            {
+                "score": int(score),
+                "id": paper_id,
+                "filename": filename,
+                "title": html.escape(str(title), quote=False),
+                "novelty": html.escape(str(novelty), quote=False),
+            }
+        )
 
     # Backward compatible fallback when only must_read_titles exists.
     if not must_read_items:
-        titles_raw = stats.get("must_read_titles", [])
-        if isinstance(titles_raw, list):
-            for title in titles_raw:
-                must_read_items.append(
-                    {
-                        "score": 0,
-                        "id": "",
-                        "filename": "",
-                        "title": html.escape(str(title), quote=False),
-                        "novelty": "N/A",
-                    }
-                )
+        for title in stats.must_read_titles:
+            must_read_items.append(
+                {
+                    "score": 0,
+                    "id": "",
+                    "filename": "",
+                    "title": html.escape(str(title), quote=False),
+                    "novelty": "N/A",
+                }
+            )
 
     lines: list[str] = [
         "🚨 <b>[BB Channel] Chimera Morning Broadcast</b> 🚨",

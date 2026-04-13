@@ -1,0 +1,74 @@
+---
+type: knowledge
+chimera_status: survey_deep_read
+paper_kind: survey
+arxiv_id: "{{ atlas.arxiv_id | replace('"', '\\"') }}"
+short_moniker: "{{ atlas.short_moniker | replace('"', '\\"') }}"
+title: "{{ (atlas.title or paper.title) | replace('"', '\\"') }}"
+tags: [deep_read, survey, "📄/optics"]
+processed: "{{ current_date }}"
+source_md: "{{ paper.content_path | replace('\\', '/') }}"
+taxonomy_tags: {{ ((atlas.taxonomy.classification_axes + (atlas.taxonomy.core_categories.keys() | list)) if atlas.taxonomy else []) | tojson }}
+---
+
+# 🗺️ Survey Read: {{ paper.title }}
+
+> **Survey Atlas** · Optics · `{{ paper.id }}` · {{ current_date }}
+
+- **PDF Asset**: [[{{ note_asset_basename }}.pdf]]
+
+---
+
+## 1. Domain Taxonomy
+
+{% if atlas.taxonomy %}
+### Classification axes
+
+{% if atlas.taxonomy.classification_axes %}
+{% for line in atlas.taxonomy.classification_axes %}
+> {{ line }}
+{% endfor %}
+{% else %}
+> *(No classification axes extracted.)*
+{% endif %}
+
+### Core categories
+
+{% if atlas.taxonomy.core_categories %}
+{% for name, technical_explanation in atlas.taxonomy.core_categories.items() %}
+**{{ name }}**: {{ technical_explanation }}
+
+{% endfor %}
+{% else %}
+*(None.)*
+{% endif %}
+
+{% else %}
+> *(Lens `survey_taxonomy` did not converge or failed validation.)*
+{% endif %}
+
+---
+
+## 2. Fundamental Bottlenecks
+
+{% if atlas.consensus_bottlenecks and atlas.consensus_bottlenecks.major_limitations %}
+{% for line in atlas.consensus_bottlenecks.major_limitations %}
+> {{ line }}
+
+{% endfor %}
+{% else %}
+> *(No consensus-level limitations extracted, or lens `survey_consensus` failed.)*
+{% endif %}
+
+---
+
+## 3. The Horizon (Future Work)
+
+{% if atlas.structural_gaps and atlas.structural_gaps.future_directions %}
+{% for gap in atlas.structural_gaps.future_directions %}
+**{{ gap.direction }}**: {{ gap.technical_void }}
+
+{% endfor %}
+{% else %}
+*(No structural gaps extracted, or lens `survey_gaps` failed.)*
+{% endif %}

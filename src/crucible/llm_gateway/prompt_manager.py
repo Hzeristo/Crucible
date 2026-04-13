@@ -1,5 +1,6 @@
 """Prompt rendering gateway based on Jinja2 templates."""
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ class PromptManager:
             lstrip_blocks=True,
             undefined=StrictUndefined,
         )
+        self.env.filters["tojson"] = lambda v: json.dumps(v, ensure_ascii=False)
         logger.debug(
             f"PromptManager initialized with template directory: {self.template_path}"
         )

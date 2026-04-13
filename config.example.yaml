@@ -5,6 +5,18 @@
 # --- Generic Crucible ---
 vault_root: "D:/Obsidian/Exocortex"  # MUST be absolute
 inbox_folder: "D:/Obsidian/Exocortex/00_Inbox/Chimera_Triage"  # MUST be absolute
+# 可选：论文 PDF 入库目录；默认 {vault_root}/02_Assets/Papers（启动时自动创建）
+# vault_assets_dir: "D:/Obsidian/Exocortex/02_Assets/Papers"
+
+# Optics：Lens YAML/JSON 目录；也可用环境变量 CHIMERA_LENSES_DIR（默认 ~/.chimera/lenses）
+# lenses_dir: "D:/Obsidian/ChimeraLenses"
+
+# LLM HTTP 总超时（秒）；深读 / 长文建议 300–900
+# default_llm_timeout_seconds: 600
+
+# LLM 默认配置（可选覆盖；未配置时使用 Settings 内置默认）
+# default_llm_base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+# default_llm_model: "qwen3-235b-a22b"
 
 # --- [PaperMiner Settings] Optional sub-block (flat keys also supported for backward compat) ---
 paper_miner:

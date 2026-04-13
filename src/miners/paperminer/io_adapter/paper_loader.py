@@ -6,7 +6,8 @@ import logging
 import shutil
 from pathlib import Path
 
-from ..core.paper import Paper
+from ..core.paper import Paper, PaperMetadata
+from .arxiv_fetcher import ArxivFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -98,14 +99,29 @@ class PaperLoader:
             ) from exc
 
         paper_id = clean_md.stem
+        year: str | None = None
+        authors: str | None = None
+
+        if ArxivFetcher._extract_arxiv_core_id(paper_id) is not None:
+            logger.info("Fetching metadata for %s...", paper_id)
+            fetcher = ArxivFetcher(timeout_seconds=5)
+            meta = fetcher.fetch_single_metadata(paper_id)
+            if meta:
+                year = meta["year"]
+                authors = meta["authors"]
+            else:
+                year = "Unknown"
+                authors = "Unknown"
 
         return Paper(
             id=paper_id,
             type="arxiv_paper",
             title=paper_id,
-            content_path=str(clean_md.resolve()),
+            content_path=clean_md.resolve(),
             raw_text=raw_text,
-            metadata={"extracted_from": "MinerU"},
+            year=year,
+            authors=authors,
+            metadata=PaperMetadata(extracted_from="MinerU"),
         )
 
     def load_clean_md(self, md_path: Path) -> Paper:
