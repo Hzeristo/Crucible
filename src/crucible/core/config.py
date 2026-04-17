@@ -13,6 +13,8 @@ from typing import Any, Mapping, get_args, get_origin
 
 from dotenv import dotenv_values
 from pydantic import AliasChoices, BaseModel, Field, model_validator, SecretStr
+
+from src.crucible.core.schemas import OligoAgentConfig
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
@@ -108,6 +110,7 @@ _LLM_SECRET_KEY_NAMES_LOWER: frozenset[str] = frozenset({
     "deepseek_api_key",
     "anthropic_api_key",
     "gemini_api_key",
+    "wash_model_api_key",
 })
 
 _CANONICAL_LLM_SECRET_ENV_NAMES: tuple[str, ...] = (
@@ -115,6 +118,7 @@ _CANONICAL_LLM_SECRET_ENV_NAMES: tuple[str, ...] = (
     "DEEPSEEK_API_KEY",
     "ANTHROPIC_API_KEY",
     "GEMINI_API_KEY",
+    "WASH_MODEL_API_KEY",
 )
 
 
@@ -211,12 +215,20 @@ class Settings(BaseSettings):
     #: 单次 HTTP 请求总超时（秒）；Anatomist / 长上下文等场景建议 300–900。
     default_llm_timeout_seconds: float = Field(default=300.0, ge=5.0, le=3600.0)
 
+    # --- Oligo Wash: cheap model for tool compression (optional; all from env / .env) ---
+    WASH_MODEL_BASE_URL: str | None = Field(default=None)
+    WASH_MODEL_NAME: str | None = Field(default=None)
+    WASH_MODEL_API_KEY: SecretStr | None = Field(default=None)
+
     # --- Telegram (secrets via env / .env) ---
     tg_bot_token: SecretStr | None = Field(default=None, alias="TG_BOT_TOKEN")
     tg_chat_id: SecretStr | None = Field(default=None, alias="TG_CHAT_ID")
 
     # --- [PaperMiner Settings] Optional sub-block ---
     paper_miner: PaperMinerSettings | None = None
+
+    # --- Oligo Agent (tool execution / wash policy; override via config.yaml oligo_agent) ---
+    oligo_agent: OligoAgentConfig = Field(default_factory=OligoAgentConfig)
 
     @classmethod
     def settings_customise_sources(

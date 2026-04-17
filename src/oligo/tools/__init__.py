@@ -1,14 +1,14 @@
-"""
-Oligo 工具注册表：将所有可调用工具集中管理，供 Chimera Agent 调度。
-"""
+# crucible_core/src/oligo/tools/__init__.py
+"""Oligo tool registry."""
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from src.oligo.tools.obsidian_search import search_vault
+from src.oligo.tools.web_search import web_search
 
-# 工具名 -> 异步可调用对象
+# Registry of available tools. Keys are tool names (matching <CMD:tool_name(...)>).
+# Values must be async callables: fn(**dict[str, Any]) -> Awaitable[str]
 TOOL_REGISTRY: dict[str, Callable[..., Awaitable[str]]] = {
-    "search_vault": search_vault,
+    "web_search": web_search,
 }

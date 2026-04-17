@@ -1,9 +1,5 @@
 """Thin CLI entrypoint for PDF ingestion workflow."""
 
-# 使用示例:
-#   python scripts/run_ingest.py -i papers/arxivpdf
-#   python scripts/run_ingest.py -i playground/pdfs -o playground/md_clean
-
 from __future__ import annotations
 
 import argparse
@@ -13,7 +9,6 @@ from pathlib import Path
 
 
 def _project_root() -> Path:
-    """Return repository root based on this script location."""
     return Path(__file__).resolve().parents[1]
 
 
@@ -21,16 +16,14 @@ PROJECT_ROOT = _project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.crucible.core.config import Settings  # noqa: E402
-from src.miners.paperminer.workflows.ingest_pdfs import run_pdf_ingestion  # noqa: E402
+from src.crucible.core.config import Settings, load_config  # noqa: E402
+from src.crucible.ports.ingest.mineru_pipeline import run_pdf_ingestion  # noqa: E402
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build parser for PDF ingestion CLI."""
-    settings = Settings()
-    default_raw_output = settings.playground_dir / "md_raw"
-    default_clean_output = settings.playground_dir / "md_clean"
-
+def build_parser(
+    default_raw_output: Path,
+    default_clean_output: Path,
+) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run MinerU ingestion for all PDFs in a directory."
     )
@@ -46,14 +39,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         type=Path,
         default=default_clean_output,
-        help="Directory where cleaned markdown files are extracted (defaults to playground).",
+        help="Directory where cleaned markdown files are extracted.",
     )
     parser.set_defaults(raw_dir=default_raw_output)
     return parser
 
 
 def configure_logging() -> None:
-    """Configure root logging for this script."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -61,8 +53,12 @@ def configure_logging() -> None:
 
 
 def main() -> int:
-    """Parse CLI args, execute PDF ingestion, and print summary."""
-    parser = build_parser()
+    settings = load_config()
+    settings.ensure_directories()
+    parser = build_parser(
+        settings.playground_dir / "md_raw",
+        settings.playground_dir / "md_clean",
+    )
     args = parser.parse_args()
     configure_logging()
 
@@ -71,6 +67,7 @@ def main() -> int:
             input_dir=args.input_dir,
             output_dir=args.raw_dir,
             clean_dir=args.out,
+            settings=settings,
         )
         print("PDF ingestion completed.")
         print(f"Input dir: {Path(args.input_dir)}")
