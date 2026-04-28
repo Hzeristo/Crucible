@@ -40,7 +40,7 @@ class PromptManager:
         )
         self.env.filters["tojson"] = lambda v: json.dumps(v, ensure_ascii=False)
         logger.debug(
-            "PromptManager initialized with template directory: %s",
+            "[Prompt] PromptManager initialized with template directory: %s",
             self.template_path,
         )
 
@@ -48,18 +48,18 @@ class PromptManager:
         if Path(template_name).is_absolute() or ".." in Path(template_name).parts:
             raise ValueError(f"Unsafe template path: {template_name}")
         try:
-            logger.debug("Rendering template: %s", template_name)
+            logger.debug("[Prompt] Rendering template: %s", template_name)
             template = self.env.get_template(template_name)
             result = template.render(**kwargs)
-            logger.debug("Template %s rendered successfully", template_name)
+            logger.debug("[Prompt] Template %s rendered successfully", template_name)
             return result
         except TemplateNotFound as exc:
             logger.error(
-                "Template not found: %s in %s", template_name, self.template_path
+                "[Prompt] Template not found: %s in %s", template_name, self.template_path
             )
             raise FileNotFoundError(
                 f"Template not found: {template_name} in {self.template_path}"
             ) from exc
         except (TemplateSyntaxError, UndefinedError) as exc:
-            logger.error("Template rendering failed for %s: %s", template_name, exc)
+            logger.error("[Prompt] Template rendering failed for %s: %s", template_name, exc)
             raise RuntimeError(f"Template rendering failed: {exc}") from exc

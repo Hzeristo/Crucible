@@ -7,7 +7,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.crucible.core.config import Settings
+from src.crucible.core.config import ChimeraConfig, get_config
 from src.crucible.core.schemas import Paper
 from src.crucible.ports.ingest.paper2md import MineruClient
 from src.crucible.ports.papers.paper_loader import PaperLoader
@@ -23,14 +23,14 @@ except ImportError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-def _normalize_against_project(path: Path, settings: Settings) -> Path:
+def _normalize_against_project(path: Path, settings: ChimeraConfig) -> Path:
     expanded = path.expanduser()
     if expanded.is_absolute():
         return expanded.resolve()
     return (settings.project_root / expanded).resolve()
 
 
-def _normalize_pdf_file(pdf_path: Path, settings: Settings) -> Path:
+def _normalize_pdf_file(pdf_path: Path, settings: ChimeraConfig) -> Path:
     expanded = pdf_path.expanduser()
     resolved = (
         expanded.resolve()
@@ -71,7 +71,7 @@ class SinglePdfIngestOutcome:
 
 def ingest_to_playground(
     pdf_path: Path,
-    settings: Settings,
+    settings: ChimeraConfig,
     raw_output_root: Path | None = None,
 ) -> tuple[Path, Path, Path]:
     abs_pdf = _normalize_pdf_file(pdf_path, settings)
@@ -102,7 +102,7 @@ def ingest_to_playground(
 
 def ingest_to_papers(
     pdf_path: Path,
-    settings: Settings,
+    settings: ChimeraConfig,
     raw_output_root: Path | None = None,
 ) -> tuple[Path, Path, Path]:
     abs_pdf = _normalize_pdf_file(pdf_path, settings)
@@ -135,7 +135,7 @@ def ingest_to_papers(
 
 def ingest_single_pdf_for_deep_read(
     pdf_path: Path,
-    settings: Settings,
+    settings: ChimeraConfig,
 ) -> SinglePdfIngestOutcome:
     abs_pdf = _normalize_pdf_file(pdf_path, settings)
     raw_root = settings.playground_dir / "md_raw"
@@ -163,10 +163,10 @@ def run_pdf_ingestion(
     output_dir: Path,
     clean_dir: Path,
     *,
-    settings: Settings | None = None,
+    settings: ChimeraConfig | None = None,
 ) -> int:
     if settings is None:
-        settings = Settings()
+        settings = get_config()
     normalized_input = _normalize_against_project(input_dir, settings)
     normalized_raw_output = _normalize_against_project(output_dir, settings)
     normalized_clean_dir = _normalize_against_project(clean_dir, settings)
@@ -175,9 +175,9 @@ def run_pdf_ingestion(
         raise FileNotFoundError(f"Input directory does not exist: {normalized_input}")
 
     pdf_files = sorted(normalized_input.glob("*.pdf"))
-    logger.info("Found %s PDF files in %s", len(pdf_files), normalized_input)
+    logger.info("[Ingest] Found %s PDF files in %s", len(pdf_files), normalized_input)
     if not pdf_files:
-        logger.info("No PDF files found in %s", normalized_input)
+        logger.info("[Ingest] No PDF files found in %s", normalized_input)
         return 0
 
     client = MineruClient(output_root=normalized_raw_output)
@@ -208,17 +208,17 @@ def run_pdf_ingestion(
             try:
                 if cleanup_target.exists() and cleanup_target.is_dir():
                     shutil.rmtree(cleanup_target)
-                    logger.info("Removed raw folder after cleaning: %s", cleanup_target)
+                    logger.info("[Ingest] Removed raw folder after cleaning: %s", cleanup_target)
             except Exception as cleanup_exc:
                 logger.warning(
-                    "Failed to cleanup raw folder for %s: %s",
+                    "[Ingest] Failed to cleanup raw folder for %s: %s",
                     pdf_path.name,
                     cleanup_exc,
                 )
 
             success_count += 1
         except Exception as exc:
-            logger.error("PDF ingestion failed for %s: %s", pdf_path, exc)
+            logger.error("[Ingest] PDF ingestion failed for %s: %s", pdf_path, exc)
             continue
 
     return success_count

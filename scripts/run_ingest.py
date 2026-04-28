@@ -16,7 +16,7 @@ PROJECT_ROOT = _project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.crucible.core.config import Settings, load_config  # noqa: E402
+from src.crucible.core.config import get_config  # noqa: E402
 from src.crucible.ports.ingest.mineru_pipeline import run_pdf_ingestion  # noqa: E402
 
 
@@ -48,12 +48,13 @@ def build_parser(
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
 def main() -> int:
-    settings = load_config()
+    settings = get_config()
     settings.ensure_directories()
     parser = build_parser(
         settings.playground_dir / "md_raw",

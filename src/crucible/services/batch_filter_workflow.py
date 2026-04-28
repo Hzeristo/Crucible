@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from src.crucible.bootstrap import build_openai_client
-from src.crucible.core.config import Settings, load_config
+from src.crucible.core.config import ChimeraConfig, get_config
 from src.crucible.core.schemas import (
     BatchFilterStats,
     BatchMustReadItem,
@@ -29,7 +29,7 @@ except ImportError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-def _resolve_md_papers_dir(settings: Settings, md_papers_dir: Path | None) -> Path:
+def _resolve_md_papers_dir(settings: ChimeraConfig, md_papers_dir: Path | None) -> Path:
     if md_papers_dir is not None:
         candidate = md_papers_dir.expanduser()
         if not candidate.is_absolute():
@@ -42,10 +42,10 @@ def _resolve_md_papers_dir(settings: Settings, md_papers_dir: Path | None) -> Pa
 def run_batch_filter(
     md_papers_dir: Path | None = None,
     *,
-    settings: Settings | None = None,
+    settings: ChimeraConfig | None = None,
 ) -> BatchFilterStats:
     if settings is None:
-        settings = load_config()
+        settings = get_config()
     settings.ensure_directories()
     loader = PaperLoader()
     prompt_manager = PromptManager()
@@ -60,12 +60,12 @@ def run_batch_filter(
     source_dir = _resolve_md_papers_dir(settings=settings, md_papers_dir=md_papers_dir)
     stats = BatchFilterStats(source_dir=source_dir)
     if not source_dir.exists() or not source_dir.is_dir():
-        logger.warning("Markdown papers directory does not exist: %s", source_dir)
+        logger.warning("[Service] Markdown papers directory does not exist: %s", source_dir)
         return stats
 
     md_files = sorted(source_dir.glob("*.md"))
     if not md_files:
-        logger.info("No markdown papers found in %s", source_dir)
+        logger.info("[Service] No markdown papers found in %s", source_dir)
         return stats
 
     stats.total = len(md_files)
@@ -108,7 +108,7 @@ def run_batch_filter(
             router.route_and_cleanup(paper, result)
         except Exception as exc:
             stats.errors += 1
-            logger.error("Failed processing %s: %s", paper_id_for_cleanup, exc)
+            logger.error("[Service] Failed processing %s: %s", paper_id_for_cleanup, exc)
             try:
                 router.route_failed_cleanup(
                     paper_id=paper_id_for_cleanup,
@@ -116,7 +116,7 @@ def run_batch_filter(
                 )
             except RuntimeError as cleanup_exc:
                 logger.warning(
-                    "Failed cleanup fallback for %s: %s",
+                    "[Service] Failed cleanup fallback for %s: %s",
                     paper_id_for_cleanup,
                     cleanup_exc,
                 )

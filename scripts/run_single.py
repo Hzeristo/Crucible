@@ -16,7 +16,7 @@ PROJECT_ROOT = _project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.crucible.core.config import load_config  # noqa: E402
+from src.crucible.core.config import get_config  # noqa: E402
 from src.crucible.services.single_paper_pipeline_service import (  # noqa: E402
     SinglePaperPipelineService,
 )
@@ -54,7 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
 def configure_logging(level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, level),
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
@@ -67,7 +68,7 @@ def main() -> int:
 
     configure_logging(args.log_level)
 
-    settings = load_config()
+    settings = get_config()
     settings.ensure_directories()
     svc = SinglePaperPipelineService(settings)
     return svc.run_single(

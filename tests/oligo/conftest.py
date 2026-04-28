@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 
 class MockLLMClient:
     """Records calls and returns configurable responses.
@@ -32,6 +34,7 @@ class MockLLMClient:
         return self.final_response
 
 
-# Factory — call mock_client() per test for fresh instance and test isolation.
-def mock_client() -> MockLLMClient:
-    return MockLLMClient()
+# 测试中 ``llm_client=mock_client()``：参数为 **类**（可调用），每次调用新建实例。
+@pytest.fixture
+def mock_client() -> type[MockLLMClient]:
+    return MockLLMClient

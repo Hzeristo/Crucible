@@ -1,4 +1,8 @@
-"""Unified structured-output client for OpenAI-compatible APIs (no implicit load_config)."""
+"""Unified structured-output client for OpenAI-compatible APIs.
+
+``timeout_seconds=None`` resolves to ``ChimeraConfig.default_llm_timeout_seconds`` via ``get_config()``.
+Prefer passing an explicit timeout from ``bootstrap.build_*`` when config is already loaded.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +27,10 @@ from src.crucible.ports.llm.json_janitor import clean_json_output
 logger = logging.getLogger(__name__)
 
 
+class LLMRawTextTimeoutError(RuntimeError):
+    """Raised when ``generate_raw_text`` exceeds ``wait_for(..., timeout=timeout_seconds)``."""
+
+
 def is_transient_error(exc: BaseException) -> bool:
     if isinstance(exc, (json.JSONDecodeError, ValidationError, APITimeoutError, APIConnectionError, TimeoutError, ConnectionError)):
         return True
@@ -43,7 +51,7 @@ def _log_before_retry(state: RetryCallState) -> None:
     if exc is None:
         return
     logger.warning(
-        "Structured generation failed at attempt %s/%s; retrying due to %s: %s",
+        "[LLM] Structured generation failed at attempt %s/%s; retrying due to %s: %s",
         state.attempt_number,
         3,
         type(exc).__name__,
@@ -55,7 +63,7 @@ def _log_final_failure(
     exc: Exception, provider_name: str, model: str, response_model: Type[BaseModel]
 ) -> None:
     logger.error(
-        "%s structured generation failed after retries for model=%s, response_model=%s: %s",
+        "[LLM] %s structured generation failed after retries for model=%s, response_model=%s: %s",
         provider_name,
         model,
         response_model.__name__,
@@ -65,7 +73,11 @@ def _log_final_failure(
 
 
 class OpenAICompatibleClient:
-    """Generic OpenAI-compatible client with structured JSON response parsing."""
+    """
+    OpenAI-compatible LLM client.
+
+    Implements: LLMClient Protocol
+    """
 
     def __init__(
         self,
@@ -73,20 +85,31 @@ class OpenAICompatibleClient:
         api_key: str,
         base_url: str,
         model: str,
-        timeout_seconds: float = 300.0,
+        timeout_seconds: float | None = None,
+        temperature: float = 0.7,
+        structured_temperature: float = 0.01,
         provider_name: str = "OpenAI-compatible",
     ) -> None:
         if not api_key or not api_key.strip():
-            raise ValueError("api_key must be non-empty (pass from load_config() / bootstrap).")
+            raise ValueError("api_key must be non-empty (pass from get_config() / bootstrap).")
+        if timeout_seconds is None:
+            from src.crucible.core.config import get_config
+
+            timeout_seconds = float(get_config().default_llm_timeout_seconds)
+        else:
+            timeout_seconds = float(timeout_seconds)
+        self.temperature = float(temperature)
+        self.structured_temperature = float(structured_temperature)
         self.provider_name = provider_name
         self.model = model
         self._resolved_base_url = base_url
         logger.info(
-            "%s client initialized | model=%s | base_url=%s",
+            "[LLM] %s client initialized | model=%s | base_url=%s",
             provider_name,
             self.model,
             self._resolved_base_url,
         )
+        self.timeout_seconds = timeout_seconds
         self._client = OpenAI(
             api_key=api_key.strip(),
             base_url=base_url,
@@ -118,7 +141,7 @@ class OpenAICompatibleClient:
 
         response = self._client.chat.completions.create(
             model=self.model,
-            temperature=0.01,
+            temperature=self.structured_temperature,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": sp},
@@ -177,7 +200,7 @@ class OpenAICompatibleClient:
             sp = f"{sp}\nOutput MUST be valid JSON."
         response = await self._async_client.chat.completions.create(
             model=self.model,
-            temperature=0.01,
+            temperature=self.structured_temperature,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": sp},
@@ -221,7 +244,7 @@ class OpenAICompatibleClient:
                 if attempt + 1 < max_attempts:
                     wait_s = 1.0 * (2**attempt)
                     logger.warning(
-                        "Async structured generation attempt %s/%s failed (%s): %s; retrying in %.1fs",
+                        "[LLM] Async structured generation attempt %s/%s failed (%s): %s; retrying in %.1fs",
                         attempt + 1,
                         max_attempts,
                         type(exc).__name__,
@@ -239,11 +262,21 @@ class OpenAICompatibleClient:
                 raise
 
     async def generate_raw_text(self, messages: list[dict[str, str]]) -> str:
-        response = await self._async_client.chat.completions.create(
-            model=self.model,
-            temperature=0.7,
-            messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-        )
+        try:
+            response = await asyncio.wait_for(
+                self._async_client.chat.completions.create(
+                    model=self.model,
+                    temperature=self.temperature,
+                    messages=[
+                        {"role": m["role"], "content": m["content"]} for m in messages
+                    ],
+                ),
+                timeout=self.timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            raise LLMRawTextTimeoutError(
+                f"[LLM Timeout]: The model did not respond within {self.timeout_seconds}s."
+            ) from None
         if not response.choices or response.choices[0].message.content is None:
             raise RuntimeError(
                 f"{self.provider_name} API returned empty message content. "
@@ -254,12 +287,41 @@ class OpenAICompatibleClient:
     async def stream_generate(
         self, messages: list[dict[str, str]]
     ) -> AsyncGenerator[str, None]:
-        stream = await self._async_client.chat.completions.create(
-            model=self.model,
-            temperature=0.7,
-            messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-            stream=True,
-        )
-        async for chunk in stream:
+        try:
+            stream = await asyncio.wait_for(
+                self._async_client.chat.completions.create(
+                    model=self.model,
+                    temperature=self.temperature,
+                    messages=[
+                        {"role": m["role"], "content": m["content"]} for m in messages
+                    ],
+                    stream=True,
+                ),
+                timeout=self.timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[LLM] %s stream create timed out after %ss",
+                self.provider_name,
+                self.timeout_seconds,
+            )
+            return
+
+        ait = stream.__aiter__()
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    ait.__anext__(),
+                    timeout=self.timeout_seconds,
+                )
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "[LLM] %s stream idle timeout after %ss (no chunk)",
+                    self.provider_name,
+                    self.timeout_seconds,
+                )
+                break
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content

@@ -1,0 +1,94 @@
+# Project Chimera — 统一配置模板
+# 复制到 ~/.chimera/config.toml 并按本机环境修改。
+# 路径可使用 ~ ；密钥建议配合环境变量覆盖（实现阶段将定义 CHIMERA_* 映射）。
+#
+# Schema 说明见：docs/CONFIG_SCHEMA.md
+
+# ---------------------------------------------------------------------------
+# [system] — 全局：Vault、技能目录、日志级别
+# ---------------------------------------------------------------------------
+[system]
+# 必填（业务上）：Obsidian / Exocortex Vault 根目录。请改为你的本机绝对路径或使用 ~。
+vault_root = "~/Documents/Obsidian/MyVault"
+
+# 可选：技能 JSON 存放目录。默认与平台层一致时为 ~/.chimera/skills；显式写出便于多机器同步时统一。
+skills_dir = "~/.chimera/skills"
+
+# 全局日志级别：DEBUG | INFO | WARNING | ERROR
+log_level = "INFO"
+
+# ---------------------------------------------------------------------------
+# [oligo] — Oligo FastAPI / Agent 服务
+# ---------------------------------------------------------------------------
+[oligo]
+# 监听地址。仅本机：127.0.0.1；需局域网访问可改为 0.0.0.0（注意安全边界）。
+host = "127.0.0.1"
+
+# 监听端口；须与 Astrocyte / 环境变量 OLIGO_BASE_URL 指向一致。
+port = 33333
+
+# 单次会话中 Agent 与模型交互的最大轮次。
+max_turns = 10
+
+# 单次工具调用的超时时间（秒）；防止卡死占用事件循环。
+tool_execution_deadline_seconds = 45
+
+# ---------------------------------------------------------------------------
+# [llm] — Working / Wash / Router 三槽位（C1 多 LLM Schema）
+# ---------------------------------------------------------------------------
+[llm.working]
+provider = "openai"
+model = "gpt-4o"
+api_key = "sk-..."
+base_url = "https://api.openai.com/v1"
+temperature = 0.7
+timeout_seconds = 90
+
+[llm.wash]
+provider = "deepseek"
+model = "deepseek-chat"
+api_key = "sk-..."
+base_url = "https://api.deepseek.com"
+temperature = 0.1
+timeout_seconds = 30
+
+# [llm.router]  # 可选；不配置则路由逻辑回退为使用 working
+# provider = "openai"
+# model = "gpt-4o-mini"
+# api_key = "sk-..."
+# base_url = "https://api.openai.com/v1"
+# temperature = 0.0
+# timeout_seconds = 60
+
+# ---------------------------------------------------------------------------
+# [wash] — Oligo Wash：上下文压缩与工具绕行策略
+# ---------------------------------------------------------------------------
+[wash]
+# 超过该阈值（字符数，或与实现对齐的单位）时倾向触发 Wash / 廉价模型路径。
+min_chars = 1200
+
+# 不经过 Wash 的工具 id（例如轻量元数据查询）。
+bypass_tools = ["search_vault_attribute", "metadata_lookup"]
+
+# 强制走 Wash 或高优先级压缩策略的工具 id（以实现为准）。
+force_tools = ["search_vault", "web_search"]
+
+# ---------------------------------------------------------------------------
+# [vault] — Vault 读路径缓存
+# ---------------------------------------------------------------------------
+[vault]
+# 最大缓存条目数；过大占内存，过小增加磁盘遍历。
+cache_size = 200
+
+# 缓存存活时间（秒）；0 表示由实现解释为「不过期」或「仅进程内」以文档为准。
+cache_ttl_seconds = 300
+
+# ---------------------------------------------------------------------------
+# [astrocyte] — Tauri 桌面客户端
+# ---------------------------------------------------------------------------
+[astrocyte]
+# 主题：dark | light
+theme = "dark"
+
+# 是否启用剪贴板相关捕获（如全局快捷键同步）；涉及隐私时保持 false。
+enable_clipboard_capture = false

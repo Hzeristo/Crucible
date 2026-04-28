@@ -16,7 +16,7 @@ PROJECT_ROOT = _project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.crucible.core.config import load_config  # noqa: E402
+from src.crucible.core.config import get_config  # noqa: E402
 from src.crucible.services.batch_filter_workflow import run_batch_filter  # noqa: E402
 
 
@@ -41,7 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
 def configure_logging(level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, level),
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
@@ -51,7 +52,7 @@ def main() -> int:
     configure_logging(args.log_level)
 
     try:
-        settings = load_config()
+        settings = get_config()
         settings.ensure_directories()
         stats = run_batch_filter(md_papers_dir=args.md_papers_dir, settings=settings)
         print("Batch filter completed.")

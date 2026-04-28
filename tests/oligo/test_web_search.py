@@ -2,6 +2,8 @@
 """Tests for web_search tool."""
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
 from src.oligo.tools.web_search import web_search
@@ -22,7 +24,9 @@ async def test_web_search_whitespace_only_returns_error():
 
 @pytest.mark.asyncio
 async def test_web_search_library_missing_returns_install_hint():
-    import src.oligo.tools.web_search as ws_module
+    # ``import src.oligo.tools.web_search`` resolves to the re-exported function on
+    # ``src.oligo.tools``; load the implementation module explicitly.
+    ws_module = importlib.import_module("src.oligo.tools.web_search")
 
     original_ddgs = ws_module.DDGS
     ws_module.DDGS = None  # type: ignore

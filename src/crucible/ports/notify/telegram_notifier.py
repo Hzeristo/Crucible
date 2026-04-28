@@ -8,7 +8,7 @@ from typing import Any
 import requests
 from tenacity import RetryCallState, retry, stop_after_attempt, wait_exponential
 
-from src.crucible.core.config import Settings
+from src.crucible.core.config import ChimeraConfig
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ def _log_before_retry(state: RetryCallState) -> None:
     if exc is None:
         return
     logger.warning(
-        "Telegram send failed at attempt %s/%s; retrying due to %s: %s",
+        "[Notify] Telegram send failed at attempt %s/%s; retrying due to %s: %s",
         state.attempt_number,
         5,
         type(exc).__name__,
@@ -29,14 +29,14 @@ def _log_before_retry(state: RetryCallState) -> None:
 
 
 def _swallow_retry_error(_: RetryCallState) -> None:
-    logger.error("Telegram send exhausted all retries; skip notification.")
+    logger.error("[Notify] Telegram send exhausted all retries; skip notification.")
     return None
 
 
 class TelegramNotifier:
     """Best-effort Telegram sender."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: ChimeraConfig) -> None:
         self._bot_token = (
             settings.tg_bot_token.get_secret_value()
             if settings.tg_bot_token is not None
@@ -49,7 +49,7 @@ class TelegramNotifier:
         )
         if not self._bot_token or not self._chat_id:
             logger.warning(
-                "Telegram bot token/chat id missing; notification will be skipped."
+                "[Notify] Telegram bot token/chat id missing; notification will be skipped."
             )
 
     @retry(
@@ -63,7 +63,7 @@ class TelegramNotifier:
         self, html_message: str, reply_markup: dict[str, Any] | None = None
     ) -> None:
         if not self._bot_token or not self._chat_id:
-            logger.warning("Telegram credentials missing. Skip sending.")
+            logger.warning("[Notify] Telegram credentials missing. Skip sending.")
             return
 
         api_url = f"https://api.telegram.org/bot{self._bot_token}/sendMessage"
@@ -76,7 +76,7 @@ class TelegramNotifier:
             payload["reply_markup"] = reply_markup
         response = requests.post(api_url, json=payload, timeout=15)
         response.raise_for_status()
-        logger.info("Morning broadcast successfully transmitted to BB Channel.")
+        logger.info("[Notify] Morning broadcast successfully transmitted to BB Channel.")
 
     def send_summary(
         self, html_message: str, reply_markup: dict[str, Any] | None = None
@@ -86,4 +86,4 @@ class TelegramNotifier:
                 html_message=html_message, reply_markup=reply_markup
             )
         except Exception as exc:
-            logger.error("Failed to send Telegram summary notification: %s", exc)
+            logger.error("[Notify] Failed to send Telegram summary notification: %s", exc)

@@ -2,10 +2,14 @@
 """Tests for ChimeraAgent tool execution layer."""
 from __future__ import annotations
 
-import asyncio
-
 from src.crucible.core.schemas import ExecutedToolResult, PlannedToolCall, ToolCallStatus
-from src.oligo.core.agent import ChimeraAgent
+from src.oligo.core.agent import (
+    ChimeraAgent,
+    _is_router_pass_or_trivial,
+    _strip_markdown_code_for_cmd_extraction,
+    _strip_router_dsl_for_backfill,
+)
+from src.oligo.tools.vault_tools import set_vault_adapter
 
 
 def test_parse_tool_calls_extracts_single_tool(mock_client):
@@ -43,6 +47,25 @@ def test_parse_tool_calls_whitelist_denies_unlisted(mock_client):
     assert "not allowed" in planned[0].deny_reason
 
 
+def test_parse_tool_calls_unknown_tool_denied_at_parse(mock_client):
+    """Hallucinated tool names are denied before execution with registry hint."""
+    agent = ChimeraAgent(
+        raw_messages=[{"role": "user", "content": "Read a file"}],
+        system_core="You are a helpful assistant.",
+        skill_override=None,
+        llm_client=mock_client(),
+        allowed_tools=None,
+    )
+    probe = '<CMD:read_vault_file({"path": "note.md"})>'
+    planned = agent._parse_tool_calls(probe)
+    assert len(planned) == 1
+    assert planned[0].tool_name == "read_vault_file"
+    assert planned[0].allowed is False
+    dr = planned[0].deny_reason or ""
+    assert "not a registered tool" in dr
+    assert "Available:" in dr
+
+
 def test_parse_tool_calls_multiple_tools_in_response(mock_client):
     """Response with multiple <CMD:...> tags parses all of them."""
     agent = ChimeraAgent(
@@ -58,8 +81,8 @@ def test_parse_tool_calls_multiple_tools_in_response(mock_client):
     assert [p.tool_name for p in planned] == ["search_vault", "web_search"]
 
 
-def test_parse_tool_calls_invalid_json_args_uses_empty_dict(mock_client):
-    """Invalid JSON in args falls back to empty dict (execute step re-validates)."""
+def test_parse_tool_calls_invalid_json_args_denies_call(mock_client):
+    """Invalid JSON in <CMD> args is denied at parse time (S0.4)."""
     agent = ChimeraAgent(
         raw_messages=[{"role": "user", "content": "Search"}],
         system_core="You are a helpful assistant.",
@@ -71,7 +94,36 @@ def test_parse_tool_calls_invalid_json_args_uses_empty_dict(mock_client):
     planned = agent._parse_tool_calls(probe)
     assert len(planned) == 1
     assert planned[0].args == {}
-    assert planned[0].allowed is True
+    assert planned[0].allowed is False
+    assert "Invalid JSON" in (planned[0].deny_reason or "")
+
+
+def test_parse_tool_calls_ignores_cmd_inside_fenced_code(mock_client):
+    """CMD only inside ``` — not matched; outside optional real CMD still parses."""
+    agent = ChimeraAgent(
+        raw_messages=[{"role": "user", "content": "Teach me"}],
+        system_core="You are a helpful assistant.",
+        skill_override=None,
+        llm_client=mock_client(),
+        allowed_tools=None,
+    )
+    only_fence = '```\n<CMD:search_vault({"query": "x"})>\n```\n'
+    assert agent._parse_tool_calls(only_fence) == []
+    inline_only = 'Use `<CMD:search_vault({"query": "z"})>` in docs.'
+    assert agent._parse_tool_calls(inline_only) == []
+    with_outside = only_fence + '<CMD:search_vault({"query": "y"})>'
+    p2 = agent._parse_tool_calls(with_outside)
+    assert len(p2) == 1
+    assert p2[0].args.get("query") == "y"
+
+
+def test_strip_router_dsl_for_backfill_removes_tags():
+    """Backfill text drops CMD / PASS literals."""
+    s = "See <CMD:search_vault({\"query\": \"a\"})> and <PASS> tail."
+    t = _strip_router_dsl_for_backfill(s)
+    assert "CMD" not in t
+    assert "PASS" not in t
+    assert "See" in t or "tail" in t
 
 
 def test_parse_tool_calls_no_cmds_returns_empty(mock_client):
@@ -85,6 +137,18 @@ def test_parse_tool_calls_no_cmds_returns_empty(mock_client):
     )
     planned = agent._parse_tool_calls("Hello, how are you?")
     assert planned == []
+
+
+def test_is_router_pass_or_trivial():
+    """Trivial / PASS responses do not backfill; longer prose does."""
+    assert _is_router_pass_or_trivial("") is True
+    assert _is_router_pass_or_trivial("   ") is True
+    assert _is_router_pass_or_trivial("<PASS>") is True
+    assert _is_router_pass_or_trivial("  <pass>  ") is True
+    assert _is_router_pass_or_trivial("x" * 29) is True
+    assert _is_router_pass_or_trivial("x" * 30) is False
+    long_nl = "Here is a natural language answer that exceeds the size threshold."
+    assert _is_router_pass_or_trivial(long_nl) is False
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +236,21 @@ class _MockVaultAdapter:
     ) -> str:
         return f"[MockVault] Found notes with {key}={value}"
 
+    async def query_graph(
+        self,
+        node_type: str | None = None,
+        link_pattern: str | None = None,
+        max_depth: int = 2,
+    ) -> list[dict[str, str | list[str] | None]]:
+        return [
+            {
+                "title": "Mock",
+                "path": "/dev/null/Mock.md",
+                "type": "thought",
+                "links": ["Other"],
+            }
+        ]
+
 
 async def test_run_theater_with_tool_calls_executes_and_streams(mock_client):
     """Router returns tool call -> executor runs it -> final response streamed."""
@@ -179,19 +258,22 @@ async def test_run_theater_with_tool_calls_executes_and_streams(mock_client):
     client.probe_response = '<CMD:search_vault({"query": "Titans"})>'
     client.final_response = "Based on the vault search, Titans is a memory architecture."
 
-    agent = ChimeraAgent(
-        raw_messages=[{"role": "user", "content": "Tell me about Titans paper"}],
-        system_core="You are BB.",
-        skill_override=None,
-        llm_client=client,
-        max_turns=3,
-        allowed_tools=["search_vault"],
-        vault=_MockVaultAdapter(),
-    )
+    set_vault_adapter(_MockVaultAdapter())
+    try:
+        agent = ChimeraAgent(
+            raw_messages=[{"role": "user", "content": "Tell me about Titans paper"}],
+            system_core="You are BB.",
+            skill_override=None,
+            llm_client=client,
+            max_turns=3,
+            allowed_tools=["search_vault"],
+        )
 
-    chunks = []
-    async for chunk in agent.run_theater():
-        chunks.append(chunk)
+        chunks = []
+        async for chunk in agent.run_theater():
+            chunks.append(chunk)
+    finally:
+        set_vault_adapter(None)
 
     assert client.probe_call_count == 1
     assert client.final_call_count == 1
@@ -213,7 +295,6 @@ async def test_run_theater_no_tool_passes_through_to_final_stream(mock_client):
         llm_client=client,
         max_turns=3,
         allowed_tools=None,
-        vault=None,
     )
 
     chunks = []
@@ -224,3 +305,35 @@ async def test_run_theater_no_tool_passes_through_to_final_stream(mock_client):
     assert client.final_call_count == 1
     full_output = "".join(chunks)
     assert "Hello from the other side" in full_output
+
+
+async def test_run_theater_natural_language_probe_backfilled_for_final(mock_client):
+    """Long router response without <CMD> is appended as assistant for Final context."""
+    draft = "Router draft: here is a summary that is long enough to backfill."
+    assert not _is_router_pass_or_trivial(draft)
+    client = mock_client()
+    client.probe_response = draft
+    client.final_response = "Polished persona answer."
+
+    agent = ChimeraAgent(
+        raw_messages=[{"role": "user", "content": "What is the note?"}],
+        system_core="You are BB.",
+        skill_override=None,
+        llm_client=client,
+        max_turns=3,
+        allowed_tools=None,
+    )
+
+    chunks: list[str] = []
+    async for chunk in agent.run_theater():
+        chunks.append(chunk)
+
+    assert client.probe_call_count == 1
+    assert client.final_call_count == 1
+    # Final call must see the backfilled draft in messages
+    final_call_messages = client.calls[1]
+    contents = " ".join(
+        (m.get("content") or "") for m in final_call_messages if m.get("role") != "system"
+    )
+    assert draft in contents
+    assert "Polished persona answer" in "".join(chunks)

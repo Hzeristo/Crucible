@@ -11,7 +11,7 @@ from pathlib import Path
 
 import requests
 
-from src.crucible.core.config import Settings
+from src.crucible.core.config import ChimeraConfig, get_config
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +29,9 @@ class ArxivFetcher:
     }
 
     def __init__(
-        self, settings: Settings | None = None, timeout_seconds: int = 50
+        self, settings: ChimeraConfig | None = None, timeout_seconds: int = 50
     ) -> None:
-        self.settings = settings or Settings()
+        self.settings = settings or get_config()
         self.timeout_seconds = timeout_seconds
         self.seen_ids = self._load_seen_ids()
         self.seen_arxiv_ids = {
@@ -58,18 +58,18 @@ class ArxivFetcher:
                 timeout=self.timeout_seconds,
             )
             response.raise_for_status()
-            logger.debug("Arxiv URL: %s", response.url)
+            logger.debug("[Arxiv] Arxiv URL: %s", response.url)
         except requests.Timeout:
-            logger.error("Arxiv API connection timed out. Check your TUN/Proxy.")
+            logger.error("[Arxiv] Arxiv API connection timed out. Check your TUN/Proxy.")
             return []
         except requests.RequestException as exc:
-            logger.warning("Arxiv API request failed: %s", exc)
+            logger.warning("[Arxiv] Arxiv API request failed: %s", exc)
             return []
 
         try:
             root = ET.fromstring(response.text)
         except ET.ParseError as exc:
-            logger.warning("Failed to parse arXiv Atom response: %s", exc)
+            logger.warning("[Arxiv] Failed to parse arXiv Atom response: %s", exc)
             return []
 
         atom_ns = "{http://www.w3.org/2005/Atom}"
@@ -89,7 +89,67 @@ class ArxivFetcher:
 
             records.append({"id": raw_id, "title": title, "pdf_url": pdf_url})
 
-        logger.info("Fetched %s arXiv records since %s", len(records), cutoff_date)
+        logger.info("[Arxiv] Fetched %s arXiv records since %s", len(records), cutoff_date)
+        return records
+
+    def fetch_search_results(self, search_query: str, max_results: int) -> list[dict]:
+        """
+        Run a user-specified arXiv search query and return records (no date cutoff).
+
+        Each record: ``id``, ``title``, ``pdf_url``, ``summary`` (abstract text).
+        """
+        q = (search_query or "").strip()
+        n = max(1, min(int(max_results), 2000))
+        params = {
+            "search_query": q,
+            "start": 0,
+            "max_results": n,
+            "sortBy": "relevance",
+            "sortOrder": "descending",
+        }
+        try:
+            response = requests.get(
+                self.API_URL,
+                params=params,
+                headers=self.REQUEST_HEADERS,
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+        except requests.Timeout:
+            logger.error("[Arxiv] Search query request timed out.")
+            return []
+        except requests.RequestException as exc:
+            logger.warning("[Arxiv] Search query request failed: %s", exc)
+            return []
+
+        try:
+            root = ET.fromstring(response.text)
+        except ET.ParseError as exc:
+            logger.warning("[Arxiv] Failed to parse arXiv Atom response: %s", exc)
+            return []
+
+        atom_ns = "{http://www.w3.org/2005/Atom}"
+        records: list[dict] = []
+
+        for entry in root.findall(f"{atom_ns}entry"):
+            raw_id = self._extract_entry_id(entry, atom_ns)
+            title = self._extract_entry_title(entry, atom_ns)
+            pdf_url = self._extract_pdf_url(entry, atom_ns)
+            summary = self._extract_entry_summary(entry, atom_ns) or ""
+
+            if not raw_id or not title or not pdf_url:
+                continue
+
+            records.append(
+                {
+                    "id": raw_id,
+                    "title": title,
+                    "pdf_url": pdf_url,
+                    "summary": summary,
+                }
+            )
+
+        logger.info("[Arxiv] Search query returned %s record(s).", len(records))
         return records
 
     def fetch_single_metadata(self, arxiv_id: str) -> dict | None:
@@ -103,16 +163,16 @@ class ArxivFetcher:
             response.raise_for_status()
             root = ET.fromstring(response.text)
         except requests.Timeout:
-            logger.debug("fetch_single_metadata timed out for %s", arxiv_id)
+            logger.debug("[Arxiv] fetch_single_metadata timed out for %s", arxiv_id)
             return None
         except requests.RequestException:
             logger.debug(
-                "fetch_single_metadata request failed for %s", arxiv_id, exc_info=True
+                "[Arxiv] fetch_single_metadata request failed for %s", arxiv_id, exc_info=True
             )
             return None
         except ET.ParseError:
             logger.debug(
-                "fetch_single_metadata XML parse failed for %s", arxiv_id, exc_info=True
+                "[Arxiv] fetch_single_metadata XML parse failed for %s", arxiv_id, exc_info=True
             )
             return None
 
@@ -129,7 +189,7 @@ class ArxivFetcher:
             return {"year": str(submitted.year), "authors": authors}
         except Exception:
             logger.debug(
-                "fetch_single_metadata extraction failed for %s", arxiv_id, exc_info=True
+                "[Arxiv] fetch_single_metadata extraction failed for %s", arxiv_id, exc_info=True
             )
             return None
 
@@ -137,7 +197,7 @@ class ArxivFetcher:
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            logger.warning("Failed to prepare target directory %s: %s", target_dir, exc)
+            logger.warning("[Arxiv] Failed to prepare target directory %s: %s", target_dir, exc)
             return 0
 
         downloaded_count = 0
@@ -146,15 +206,15 @@ class ArxivFetcher:
             pdf_url = record.get("pdf_url")
 
             if not isinstance(paper_id, str) or not isinstance(pdf_url, str):
-                logger.warning("Skip invalid record (missing id/pdf_url): %s", record)
+                logger.warning("[Arxiv] Skip invalid record (missing id/pdf_url): %s", record)
                 continue
             if self._is_seen_paper(paper_id):
-                logger.info("Skip seen paper from audit log: %s", paper_id)
+                logger.info("[Arxiv] Skip seen paper from audit log: %s", paper_id)
                 continue
 
             pdf_path = target_dir / f"{paper_id}.pdf"
             if pdf_path.exists():
-                logger.info("Skip existing PDF: %s", pdf_path.name)
+                logger.info("[Arxiv] Skip existing PDF: %s", pdf_path.name)
                 continue
 
             try:
@@ -170,20 +230,20 @@ class ArxivFetcher:
                             if chunk:
                                 file_obj.write(chunk)
                 downloaded_count += 1
-                logger.info("Downloaded PDF: %s", pdf_path.name)
+                logger.info("[Arxiv] Downloaded PDF: %s", pdf_path.name)
             except requests.RequestException as exc:
                 logger.warning(
-                    "Failed to download %s from %s: %s", paper_id, pdf_url, exc
+                    "[Arxiv] Failed to download %s from %s: %s", paper_id, pdf_url, exc
                 )
             except OSError as exc:
-                logger.warning("Failed to write PDF %s: %s", pdf_path, exc)
+                logger.warning("[Arxiv] Failed to write PDF %s: %s", pdf_path, exc)
 
         return downloaded_count
 
     def _load_seen_ids(self) -> set[str]:
         audit_log_path = self.settings.project_root / "papers" / "audit_log.csv"
         if not audit_log_path.exists():
-            logger.info("Audit log not found, skip seen-id preload: %s", audit_log_path)
+            logger.info("[Arxiv] Audit log not found, skip seen-id preload: %s", audit_log_path)
             return set()
 
         seen_ids: set[str] = set()
@@ -195,13 +255,13 @@ class ArxivFetcher:
                     if paper_id:
                         seen_ids.add(paper_id)
         except OSError as exc:
-            logger.warning("Failed to read audit log %s: %s", audit_log_path, exc)
+            logger.warning("[Arxiv] Failed to read audit log %s: %s", audit_log_path, exc)
             return set()
         except csv.Error as exc:
-            logger.warning("Invalid audit CSV format %s: %s", audit_log_path, exc)
+            logger.warning("[Arxiv] Invalid audit CSV format %s: %s", audit_log_path, exc)
             return set()
 
-        logger.info("Preloaded %s seen paper ids from audit log", len(seen_ids))
+        logger.info("[Arxiv] Preloaded %s seen paper ids from audit log", len(seen_ids))
         return seen_ids
 
     def _is_seen_paper(self, paper_id: str) -> bool:
@@ -236,6 +296,13 @@ class ArxivFetcher:
         if title_node is None or not title_node.text:
             return None
         return " ".join(title_node.text.split())
+
+    @staticmethod
+    def _extract_entry_summary(entry: ET.Element, atom_ns: str) -> str | None:
+        summary_node = entry.find(f"{atom_ns}summary")
+        if summary_node is None or not summary_node.text:
+            return None
+        return " ".join(summary_node.text.split())
 
     @staticmethod
     def _extract_pdf_url(entry: ET.Element, atom_ns: str) -> str | None:

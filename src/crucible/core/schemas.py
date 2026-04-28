@@ -287,7 +287,48 @@ class ChatMessage(BaseModel):
     )
 
 
+class SkillDefinition(BaseModel):
+    """`~/.chimera/skills/{skill_id}.json` 的纯净定义（不含使用统计）。
+
+    统计见 `~/.chimera/skill_stats.json`，由 `SkillStatsService` 维护。
+    旧文件中若仍含 ``usage_count`` / ``success_rate`` / ``avg_tokens`` 等键，
+    加载时会被忽略（``extra="ignore"``）。
+    """
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    system_override: str = Field(..., min_length=1)
+    allowed_tools: list[str] | None = None
+    category: str = Field(default="general", min_length=1)
+    target_paper_type: list[str] = Field(default_factory=list)
+    expected_output_format: str | None = None
+    version: str = Field(default="1.0.0", min_length=1)
+    last_updated: str | None = None
+
+
 class AgentInvokeRequest(BaseModel):
+    """Agent 调用请求体（与 Astrocyte ``OligoAgentRequest`` JSON 严格同构）。
+
+    **JSON 顶层键**（snake_case，与 Pydantic 字段名一致；与 ``llm_client.rs`` 中
+    ``OligoAgentRequest`` 的 serde 默认字段名一一对应）::
+
+        api_key, base_url, model_name, persona_id?, system_core,
+        skill_override?, skill_id?, allowed_tools?, persona?, authors_note?,
+        temperature?, messages
+
+    可选字段在 Rust 侧为 ``None`` 时使用 ``skip_serializing_if`` **省略键**；
+    FastAPI 解析时等价于 Python 侧 ``None``。``messages`` 元素为 ``ChatMessage``：
+    最少包含 ``role``、``content``；未传的 ``tool_call_id`` / ``name`` 视为 ``null``。
+
+    Prompt Injection Hierarchy (L1 > L2 > L3):
+    - L1 (System Core): Router/Skill system prompts (highest priority)
+    - L2 (Persona): User-selected persona (e.g., BB's sarcastic style)
+    - L3 (Author's Note): Ephemeral, single-session instruction (lowest priority)
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     api_key: str = Field(
@@ -296,15 +337,31 @@ class AgentInvokeRequest(BaseModel):
     )
     base_url: str = Field(..., description="Chat/completions API base URL from gateway.")
     model_name: str = Field(..., description="Model id from gateway.")
+    temperature: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=2.0,
+        description="Temperature for this Oligo request. If None, use ChimeraConfig llm.working.temperature.",
+    )
     persona_id: str | None = Field(
         default=None,
         description="Optional persona id for logging only; not used for routing decisions.",
     )
     system_core: str = Field(
         ...,
-        description="The full system prompt payload fetched by Rust (persona baseline).",
+        description=(
+            "L1: Core system baseline from the gateway (e.g. active persona `system_prompt` only). "
+            "Do not embed Author's Note or persona override here; use `persona` / `authors_note`."
+        ),
     )
     skill_override: str | None = Field(default=None)
+    skill_id: str | None = Field(
+        default=None,
+        description=(
+            "Active skill file stem (~/.chimera/skills/{skill_id}.json)；"
+            "统计写入 ~/.chimera/skill_stats.json，与 skill_override 正交。"
+        ),
+    )
     allowed_tools: list[str] | None = Field(
         default=None,
         description="If set, only these tool names may execute in the router/tool loop; None means no restriction.",
@@ -312,6 +369,14 @@ class AgentInvokeRequest(BaseModel):
     messages: list[ChatMessage] = Field(
         ...,
         description="Clean user/assistant transcript and current turn (no gateway-prefixed system).",
+    )
+    persona: str | None = Field(
+        None,
+        description="L2: Persona override. Injected in Final Stream stage as [PERSONA OVERRIDE].",
+    )
+    authors_note: str | None = Field(
+        None,
+        description="L3: Ephemeral instruction. Injected after all system prompts as [AUTHOR'S NOTE].",
     )
 
 
@@ -329,7 +394,7 @@ class ToolCallStatus(str, Enum):
 
 
 class PlannedToolCall(BaseModel):
-    """Parsed <CMD:...> invocation with optional allowlist gate and structured args."""
+    """Parsed tool invocation (XML / CMD) with optional allowlist gate and structured args."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -353,6 +418,10 @@ class PlannedToolCall(BaseModel):
     deny_reason: str | None = Field(
         default=None,
         description="Human-readable reason when allowed is False; None when allowed.",
+    )
+    repairs_applied: list[str] = Field(
+        default_factory=list,
+        description="Conservative format-only repairs applied to raw_args before JSON parse (TP.3).",
     )
 
 
@@ -443,3 +512,57 @@ class BatchFilterStats(BaseModel):
     must_read_titles: list[str] = Field(default_factory=list)
     must_read_items: list[BatchMustReadItem] = Field(default_factory=list)
     source_dir: Path | None = None
+
+
+# --- Oligo PromptComposer ---
+
+
+class PromptStage(str, Enum):
+    """Prompt 注入的目标阶段"""
+
+    ROUTER = "router"  # Router 探针阶段的 system
+    FINAL = "final"  # Final 推流阶段的 system
+    BOTH = "both"  # 两个阶段都注入
+    MESSAGE_INJECTION = "message_injection"  # 注入到 messages 而非 system
+
+
+class PromptComponent(BaseModel):
+    """单个 Prompt 片段的元数据"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(description="唯一标识, 如 'router_core', 'skill_directive'")
+    stage: PromptStage
+    priority: int = Field(
+        description="数字越大越靠前(更显眼). 100=核心规则, 50=任务约束, 10=guardrail"
+    )
+    cacheable: bool = Field(
+        default=True,
+        description="是否属于 stable prefix. 时间戳/会话 ID 等动态内容应为 False",
+    )
+    template: str = Field(description="prompt 文本, 可含 {variable} 占位符")
+
+
+class ToolSpec(BaseModel):
+    """工具的元数据"""
+
+    name: str = Field(description="工具名, 与 TOOL_REGISTRY 的 key 一致")
+    description: str = Field(description="一行简介, 用于 router prompt")
+    args_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="JSON-schema-like 描述, 形如 {'query': {'type': 'str', 'required': True}}",
+    )
+    concurrency_safe: bool = Field(
+        default=False,
+        description="True=可与其他 concurrency_safe 工具并行. False=必须串行(可能改文件状态).",
+    )
+    long_running: bool = Field(
+        default=False,
+        description="True=立即返回 task_id 的异步工具(arxiv_miner / daily_paper_pipeline)",
+    )
+    examples: list[str] = Field(
+        default_factory=list,
+        description="可选: 1-2 个调用示例, 用于强化 router 的 in-context learning",
+    )
+
+    model_config = ConfigDict(extra="forbid")

@@ -14,17 +14,20 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 
 import uvicorn
 
+from src.crucible.core.config import get_config
 from src.oligo.server import app
 
 if __name__ == "__main__":
+    settings = get_config()
     uvicorn.run(
         app,
-        host="0.0.0.0",
-        port=33333,
+        host=settings.oligo_host,
+        port=settings.oligo_port,
         log_level="info",
     )

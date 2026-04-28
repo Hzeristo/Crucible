@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from src.crucible.core.config import Settings
+from src.crucible.core.config import ChimeraConfig
 from src.crucible.core.schemas import LensConfig
 
 logger = logging.getLogger(__name__)
@@ -169,7 +169,7 @@ def _builtin_survey_lens_configs() -> list[LensConfig]:
     ]
 
 
-def load_survey_lens_configs(settings: Settings) -> list[LensConfig]:
+def load_survey_lens_configs(settings: ChimeraConfig) -> list[LensConfig]:
     base: Path = settings.lenses_dir
     yaml_path = base / "survey_lenses.yaml"
     yml_path = base / "survey_lenses.yml"
@@ -179,7 +179,7 @@ def load_survey_lens_configs(settings: Settings) -> list[LensConfig]:
         try:
             parsed = _try_read_config_file(candidate)
         except (OSError, yaml.YAMLError, json.JSONDecodeError, ValueError) as exc:
-            logger.debug("Survey lens config unreadable at %s: %s", candidate, exc)
+            logger.debug("[Service] Survey lens config unreadable at %s: %s", candidate, exc)
             continue
         if parsed is not None:
             return parsed
@@ -188,7 +188,7 @@ def load_survey_lens_configs(settings: Settings) -> list[LensConfig]:
     try:
         _persist_lens_yaml(yaml_path, lenses)
     except OSError as exc:
-        logger.warning("Could not persist survey lens YAML to %s: %s", yaml_path, exc)
+        logger.warning("[Service] Could not persist survey lens YAML to %s: %s", yaml_path, exc)
     return lenses
 
 
@@ -231,7 +231,7 @@ def _write_default_yaml(target: Path, lenses: list[LensConfig]) -> None:
     _persist_lens_yaml(target, lenses)
 
 
-def load_lens_configs(settings: Settings) -> list[LensConfig]:
+def load_lens_configs(settings: ChimeraConfig) -> list[LensConfig]:
     base: Path = settings.lenses_dir
     yaml_path = base / f"{_DEFAULT_FILE_STEM}.yaml"
     yml_path = base / f"{_DEFAULT_FILE_STEM}.yml"
@@ -241,7 +241,7 @@ def load_lens_configs(settings: Settings) -> list[LensConfig]:
         try:
             parsed = _try_read_config_file(candidate)
         except (OSError, yaml.YAMLError, json.JSONDecodeError, ValueError) as exc:
-            logger.debug("Lens config unreadable at %s: %s", candidate, exc)
+            logger.debug("[Service] Lens config unreadable at %s: %s", candidate, exc)
             continue
         if parsed is not None:
             return parsed
@@ -250,5 +250,5 @@ def load_lens_configs(settings: Settings) -> list[LensConfig]:
     try:
         _write_default_yaml(yaml_path, lenses)
     except OSError as exc:
-        logger.warning("Could not persist default lens YAML to %s: %s", yaml_path, exc)
+        logger.warning("[Service] Could not persist default lens YAML to %s: %s", yaml_path, exc)
     return lenses

@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from src.crucible.core.config import Settings
+from src.crucible.core.config import ChimeraConfig
 from src.crucible.core.naming import compute_fancy_basename
 from src.crucible.core.schemas import DeepReadAtlas, Paper, PaperAnalysisResult
 from src.crucible.ports.prompts.jinja_prompt_manager import PromptManager
@@ -19,7 +19,7 @@ _DEEP_READ_SUBDIR = "01_Deep_Reads"
 class VaultNoteWriter:
     """Render and persist paper knowledge nodes as markdown files."""
 
-    def __init__(self, settings: Settings, prompt_manager: PromptManager) -> None:
+    def __init__(self, settings: ChimeraConfig, prompt_manager: PromptManager) -> None:
         self.settings = settings
         configured_inbox = settings.require_path("inbox_folder")
         if not configured_inbox.is_absolute():
@@ -41,7 +41,7 @@ class VaultNoteWriter:
         target_dir.mkdir(parents=True, exist_ok=True)
         output_path = target_dir / f"{fancy_basename}.md"
         output_path.write_text(rendered, encoding="utf-8")
-        logger.info("Knowledge node written to: %s", output_path)
+        logger.info("[Vault] Knowledge node written to: %s", output_path)
         return output_path
 
     def write_deep_read_node(
@@ -70,5 +70,5 @@ class VaultNoteWriter:
         target_dir.mkdir(parents=True, exist_ok=True)
         output_path = target_dir / f"{stem}{suffix}"
         output_path.write_text(rendered, encoding="utf-8")
-        logger.info("Deep read node written to: %s", output_path)
+        logger.info("[Vault] Deep read node written to: %s", output_path)
         return output_path

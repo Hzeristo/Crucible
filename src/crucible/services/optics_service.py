@@ -11,7 +11,7 @@ from typing import Any, Final
 from openai import APIConnectionError, APIError, APITimeoutError
 from pydantic import BaseModel, ValidationError
 
-from src.crucible.core.config import Settings
+from src.crucible.core.config import ChimeraConfig
 from src.crucible.core.naming import expected_stem
 from src.crucible.core.schemas import (
     ConsensusAndBottlenecks,
@@ -56,7 +56,7 @@ _FILTERED_VERDICT_DIRS: tuple[str, ...] = ("Must_Read", "Skim", "Reject")
 
 
 def resolve_filtered_fulltext_markdown(
-    settings: Settings,
+    settings: ChimeraConfig,
     arxiv_id: str,
     short_moniker: str,
 ) -> Path | None:
@@ -101,7 +101,7 @@ class OpticsService:
 
     def __init__(
         self,
-        settings: Settings,
+        settings: ChimeraConfig,
         llm_client: OpenAICompatibleClient,
         vault_writer: VaultNoteWriter,
     ) -> None:
@@ -111,7 +111,7 @@ class OpticsService:
 
     def _log_optics_failure(self, lens: LensConfig, exc: BaseException) -> None:
         logger.error(
-            "%s[Optics Failure]%s lens_id=%s schema=%s: %s",
+            "[Service] %s[Optics Failure]%s lens_id=%s schema=%s: %s",
             _RED,
             _RESET,
             lens.id,
@@ -187,7 +187,7 @@ class OpticsService:
             field = ATLAS_FIELD_BY_SCHEMA.get(schema_name)
             if field is None:
                 logger.error(
-                    "%s[Optics Failure]%s schema=%s has no atlas field mapping",
+                    "[Service] %s[Optics Failure]%s schema=%s has no atlas field mapping",
                     _RED,
                     _RESET,
                     schema_name,
@@ -244,7 +244,7 @@ class OpticsService:
         except (APIConnectionError, APITimeoutError, APIError):
             return (3, None)
         except Exception:
-            logger.exception("Irradiate failed")
+            logger.exception("[Service] Irradiate failed")
             return (4, None)
 
         note_asset_basename = f"{arxiv_id}-{short_moniker}"

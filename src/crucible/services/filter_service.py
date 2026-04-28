@@ -24,7 +24,7 @@ class FilterService:
         self.prompt_manager = prompt_manager
 
     def evaluate_paper(self, paper: Paper) -> PaperAnalysisResult:
-        logger.info("[Crucible Engine] Evaluating payload: %s", paper.title)
+        logger.info("[Service] Evaluating payload: %s", paper.title)
         try:
             if len(paper.raw_text.strip()) < 80:
                 raise ValueError(
@@ -50,7 +50,7 @@ class FilterService:
 
             if isinstance(result, PaperAnalysisResult):
                 logger.info(
-                    "[Crucible Engine] Evaluation completed: %s | verdict=%s score=%s",
+                    "[Service] Evaluation completed: %s | verdict=%s score=%s",
                     paper.title,
                     result.verdict.value,
                     result.score,
@@ -60,14 +60,14 @@ class FilterService:
             validated = PaperAnalysisResult.model_validate(result)
 
             logger.info(
-                "[Crucible Engine] Evaluation completed: %s | verdict=%s score=%s",
+                "[Service] Evaluation completed: %s | verdict=%s score=%s",
                 paper.title,
                 validated.verdict.value,
                 validated.score,
             )
             return validated
         except Exception as exc:
-            logger.exception("Evaluation failed for paper: %s", paper.title)
+            logger.exception("[Service] Evaluation failed for paper: %s", paper.title)
             return PaperAnalysisResult(
                 verdict=VerdictDecision.REJECT,
                 short_moniker="EvalDegraded",

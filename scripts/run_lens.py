@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.crucible.bootstrap import build_openai_client  # noqa: E402
-from src.crucible.core.config import load_config  # noqa: E402
+from src.crucible.core.config import get_config  # noqa: E402
 from src.crucible.ports.papers.paper_loader import PaperLoader  # noqa: E402
 from src.crucible.ports.prompts.jinja_prompt_manager import PromptManager  # noqa: E402
 from src.crucible.ports.vault.vault_note_writer import VaultNoteWriter  # noqa: E402
@@ -55,13 +55,14 @@ def _build_parser() -> argparse.ArgumentParser:
 def _configure_logging(level: str) -> logging.Logger:
     logging.basicConfig(
         level=getattr(logging, level),
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
     return logging.getLogger("optics.run")
 
 
 async def _async_main(args: argparse.Namespace, log: logging.Logger) -> int:
-    settings = load_config()
+    settings = get_config()
     settings.ensure_directories()
 
     llm = build_openai_client(settings)
