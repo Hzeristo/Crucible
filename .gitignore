@@ -6,6 +6,7 @@ config.yaml
 
 # Runtime data & pipeline I/O (paths aligned with config.example.yaml / PaperMiner)
 papers/
+playground/
 data/
 models/
 runs/

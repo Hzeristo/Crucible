@@ -1,0 +1,78 @@
+---
+type: knowledge
+source_type: "Paper"
+title: "{{ paper.title | replace('"', '\\"') }}"
+tags: [knowledge, raw_data, "📄/{{ analysis.verdict.value | lower | replace(' ', '_') }}"]
+chimera_status: unverified_by_human
+score: {{ analysis.score }}/10
+year: "{{ paper.year | default(paper.metadata.year, true) | default('TODO', true) | replace('"', '\\"') }}"
+authors: "{{ paper.authors | default(paper.metadata.authors, true) | default('TODO', true) | replace('"', '\\"') }}"
+---
+
+# 📑 {{ paper.id }} - {{ analysis.short_moniker }}
+
+> **Status**: triage / deep_read / stabilized
+> **Verdict**: **{{ analysis.verdict.value }}** ({{ analysis.score }}/10) | **Processed**: {{ current_date }}
+- **PDF Asset**: [[{{ note_asset_basename }}.pdf]]
+
+---
+
+## 1. Core Paradigm Shift (核心范式转移)
+> 🤖 **[BB's Analysis]**: {{ analysis.novelty_delta }}
+
+- **My Critique (我的修正)**: <INSTRUCTION: BB 说得对吗？有什么漏洞？>
+
+## 2. Mechanism & Implementation (机制解剖)
+> 🤖 **[BB's Breakdown]**: {{ analysis.mechanism_summary }}
+
+> 🤖 **[Core Algorithm Steps]**:
+{% for step in analysis.core_algorithm_steps %}
+> {{ loop.index }}. {{ step }}
+{% else %}
+> - N/A
+{% endfor %}
+
+- **The Math / Architecture**: <INSTRUCTION: Drop the core equation or diagram here if needed.>
+
+---
+
+## 3. Experimental Setup & Falsifiability (实验拷问)
+
+> 🤖 **[BB's Read - How they tested it]**:
+
+- **Tested On (Datasets)**: {{ analysis.evaluation_datasets | join(", ") | default("N/A") }}
+- **Baselines Engaged**: {{ analysis.baseline_models | join(", ") | default("N/A") }}
+
+> {{ analysis.experimental_setup | trim | replace('\r\n', '\n') | replace('\r', '\n') | replace('\n', '\n> ') }}
+
+### 3.1 The Ablation Studies
+{% if analysis.ablation_findings %}
+{% for finding in analysis.ablation_findings %}
+> 🔍 [BB]: {{ finding }}
+{% endfor %}
+{% else %}
+> 🔍 [BB]: No explicit ablation findings extracted. (Suspicious).
+{% endif %}
+
+- **My Critique on Rigor**: <INSTRUCTION: Did they cheat the prompt? Are the baselines strawmen?>
+
+---
+
+## 4. Vulnerabilities & Attack Vectors (攻击面)
+{% if analysis.critical_flaws %}
+{% for flaw in analysis.critical_flaws %}
+> 💥 [BB]: {{ flaw }}
+{% endfor %}
+{% else %}
+> 💥 [BB]: None detected (Highly Suspicious).
+{% endif %}
+
+- [ ] **Actionable Attack**: <INSTRUCTION: How can I beat this baseline or exploit this flaw?>
+
+---
+
+## 5. Connections (Graph Edges)
+- **Extracted Thoughts**: [[Thought/ ...]]
+
+---
+*📺 [Broadcasted via BB Channel]*
