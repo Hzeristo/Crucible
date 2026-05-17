@@ -340,3 +340,84 @@ async def test_run_theater_natural_language_probe_backfilled_for_final(mock_clie
     )
     assert draft in contents
     assert "Polished persona answer" in "".join(chunks)
+
+
+def test_render_tool_results_ir2_denied_and_reflection_hint(mock_client):
+    agent = ChimeraAgent(
+        raw_messages=[{"role": "user", "content": "ping"}],
+        system_core="x",
+        skill_override=None,
+        llm_client=mock_client(),
+    )
+    er = ExecutedToolResult(
+        call_id="c1",
+        tool_name="web_search",
+        args={"query": "q"},
+        status=ToolCallStatus.DENIED,
+        raw_result="[Permission Denied] blocked",
+        error_message="blocked",
+    )
+    text = agent._render_tool_results_for_llm([er])
+    assert '<tool_result status="failed" reason="DENIED"' in text
+    assert "Some tools failed." in text
+
+
+def test_render_tool_results_ir2_empty_success_with_expectation_hint(mock_client):
+    agent = ChimeraAgent(
+        raw_messages=[
+            {"role": "user", "content": "Please search the vault for foobar"},
+        ],
+        system_core="x",
+        skill_override=None,
+        llm_client=mock_client(),
+    )
+    er = ExecutedToolResult(
+        call_id="c2",
+        tool_name="search_vault",
+        args={"query": "foobar"},
+        status=ToolCallStatus.SUCCESS,
+        raw_result="[web_search] No results found for query: foobar",
+    )
+    text = agent._render_tool_results_for_llm([er])
+    assert '<tool_result status="failed" reason="EMPTY_RESULT"' in text
+    assert "Some tools failed." in text
+    assert "web_search as fallback" in text
+
+
+def test_render_tool_results_ir2_all_success_no_reflection(mock_client):
+    agent = ChimeraAgent(
+        raw_messages=[{"role": "user", "content": "search for x"}],
+        system_core="x",
+        skill_override=None,
+        llm_client=mock_client(),
+    )
+    er = ExecutedToolResult(
+        call_id="c3",
+        tool_name="search_vault",
+        args={"query": "x"},
+        status=ToolCallStatus.SUCCESS,
+        raw_result="1. Note A\n2. Note B",
+    )
+    text = agent._render_tool_results_for_llm([er])
+    assert '<tool_result status="success"' in text
+    assert "Some tools failed." not in text
+    assert "web_search as fallback" not in text
+
+
+def test_render_tool_results_ir2_error_args_invalid(mock_client):
+    agent = ChimeraAgent(
+        raw_messages=[{"role": "user", "content": "x"}],
+        system_core="x",
+        skill_override=None,
+        llm_client=mock_client(),
+    )
+    er = ExecutedToolResult(
+        call_id="c4",
+        tool_name="read_vault_file",
+        args={"path": ""},
+        status=ToolCallStatus.ERROR,
+        raw_result="Error: Tool 'read_vault_file' invalid args: missing",
+        error_message="boom",
+    )
+    text = agent._render_tool_results_for_llm([er])
+    assert 'reason="ARGS_INVALID"' in text

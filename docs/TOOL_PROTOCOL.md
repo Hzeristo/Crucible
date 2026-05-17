@@ -48,6 +48,15 @@
 - 同一响应可出现多个完整 `<tool_call ...>...</tool_call>` 块；与多个 `<CMD:...>` 一样，由 agent **分批执行**（见 [§4](#4-concurrency-safety-模型)）。
 - 在 **Markdown 围栏或行内反引号** 内讨论示例时，运行时**不会**对剥离后的文本执行匹配（与 CMD 的 S0.4 策略一致）。
 
+### Router system 中「工具与参数」的暴露规则（非 JSON Schema 草案全文）
+
+模型**不会**收到一份独立的、可机器校验的 JSON Schema 文件；Router 看到的参数说明来自 **`ToolSpec.args_schema`** 经 **`_format_one_tool_verbose`** 渲染的人类可读块（再经 `_render_tool_list` 拼进 `router_tool_registry` 的 `{tool_list}`）。
+
+- **字段级元数据**：每个参数一行，含 `type`（缺省视为 `str`）、`required` / `optional`、可选 `help` 文案（`575:583:src/crucible/core/schemas.py`、`101:119:src/oligo/core/prompt_composer.py`）。
+- **无 schema 的工具**：明示「未声明参数」，并提示在仅可选键时用 `{}`（`106:108:src/oligo/core/prompt_composer.py`）。
+- **示例调用**：每条 verbose 工具块末尾附 **XML** 与 **CMD** 各一例，参数值来自 `_example_args_for_spec`（按 `type`/`required` 生成的占位 JSON），用于对齐解析器期望形态（`120:125:src/oligo/core/prompt_composer.py`）。
+- **与真实调用的关系**：上述 schema 与示例只约束 **prompt 内可读说明**；本轮真正执行的 `args` 仍以模型输出解析结果为准，并受 `allowed_tools`、参数修复与执行层校验约束。
+
 ---
 
 ## 3. Argument Repair 策略清单
@@ -99,7 +108,57 @@
 
 ---
 
-## 5. 新增工具的 checklist
+## 5. SSE：`bb-tool-start` / `bb-tool-done`（IR.3）
+
+与 **`data:` 正文帧**及 **`bb-stream-chunk`** 并列，Oligo 在**每批**工具调度前后可发出 **命名 SSE 事件**，供桌面端（Astrocyte）做「工具执行中」读秒等遥测。**不写入**会话历史；与 `__SYS_TOOL_CALL__` 文本遥测正交。若本批计划**全部为**解析/白名单拒绝（`allowed_plans` 为空），则**不会**进入 `_execute_tool_plan_batch`，因而**无** `bb-tool-*`（`866:874:src/oligo/core/agent.py`）。
+
+**帧格式**：统一由 `sse_event(event_type, data)` 生成（`8:10:src/oligo/core/sse.py`）：
+
+```text
+event: <type>
+data: <JSON 对象>
+
+```
+
+**`bb-tool-start`**（每个获准执行的 `PlannedToolCall` 在批处理开始时各发一条，`722:742:src/oligo/core/agent.py`）：
+
+| JSON 键 | 类型 | 含义 |
+|---------|------|------|
+| `call_id` | string | 与 `PlannedToolCall.id` 一致 |
+| `tool_name` | string | 工具名 |
+| `started_at_ms` | int | Unix 毫秒时间戳（服务端 `time.time()*1000`） |
+
+**`bb-tool-done`**（批内每个 `ExecutedToolResult` 结束时各一条；单工具批顺序与执行顺序一致，`794:807:src/oligo/core/agent.py`，多工具见 `839:851:src/oligo/core/agent.py`）：
+
+| JSON 键 | 类型 | 含义 |
+|---------|------|------|
+| `call_id` | string | 与结果行一致 |
+| `status` | string | `ExecutedToolResult.status.name`（如 `SUCCESS` / `ERROR` / `TIMEOUT` / `DENIED`） |
+| `elapsed_ms` | int | 执行耗时毫秒；缺失时填 `0` |
+
+**桌面端转发**：`llm_client.rs` 在解析到上述 `event:` 时 **`emit`** 同名 Tauri 事件（`307:323:../../astrocyte/src-tauri/src/llm_client.rs`，路径相对 `crucible_core/docs/`）；前端 `ActiveToolTelemetry.svelte` 监听以显示计时条（需同时跑 Astrocyte；纯 `crucible_core` 脚本仅校验 SSE 文本）。
+
+---
+
+## 6. 注入回 LLM 的 `<tool_result reason="…">` 分类（IR.2，渲染层）
+
+工具执行后，用户态注入消息 `[SYSTEM TOOL RESULTS]` 内每条结果为 `<tool_result>` 包装。失败时带 `reason` 属性，取值为下列之一（常量 `127:131:src/oligo/core/agent.py`）：
+
+| `reason` | 典型来源 |
+|----------|-----------|
+| `DENIED` | `ToolCallStatus.DENIED`（白名单/策略拒绝，结果在拆分阶段物化） |
+| `TIMEOUT` | `ToolCallStatus.TIMEOUT`（调度层判定超时） |
+| `TOOL_ERROR` | `ToolCallStatus.ERROR`，或 `SUCCESS` 但正文被判定为错误形态且不像参数问题 |
+| `ARGS_INVALID` | 错误正文中含「invalid args」类启发式（`_message_suggests_args_invalid`，见 `185:195:src/oligo/core/agent.py`） |
+| `EMPTY_RESULT` | `SUCCESS` 但正文被视为空结果（`_body_looks_empty_for_hint` / `248:249:src/oligo/core/agent.py`） |
+
+完整映射见 `_classify_render_outcome`（`215:252:src/oligo/core/agent.py`）。**注意**：此为 **LLM 可见包装**，用于下一轮 Router/Final 阅读；与 HTTP/API 层错误码不是一一对应关系。
+
+文末可按条件附加静态 **reflection hint**（失败/空结果 + 用户语气），见 `docs/INTENT_AND_DEGRADATION.md`。
+
+---
+
+## 7. 新增工具的 checklist
 
 1. **填写 `ToolSpec`**：`name`、`description`（router 一行摘要）、`args_schema`、`concurrency_safe`、`long_running`、`examples`（可选）。
 2. 在 **`registry.py` 的 `_register_default_tools`** 中 `reg.register(func, spec)`；保持 `TOOL_REGISTRY` 由 `get_tool_registry()` 派生（见 `tools/__init__.py`）。
@@ -108,10 +167,11 @@
 
 ---
 
-## 6. 已知未解决问题
+## 8. 已知未解决问题
 
 1. **`tool_call` 的 `id` / `timeout`**：当前为**接受但不强制**；`timeout` **不**覆盖全局 `tool_execution_deadline_seconds`。
 2. **无 DAG 依赖**：工具之间**不**声明「B 必须在 A 之后」；多调用顺序仅由**模型输出顺序**与 **safe/unsafe 分批**决定。引入 DAG 属 **有意不在 Phase III.B** 范围内。
+3. **Router 不自动 retry**：失败提示由渲染层给出，是否换参数/换工具/放弃由下一探针模型决策，见 `docs/INTENT_AND_DEGRADATION.md`。
 
 ---
 

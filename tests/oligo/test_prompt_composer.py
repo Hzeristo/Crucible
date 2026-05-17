@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
+from xml.etree import ElementTree as ET
 
 from src.crucible.core.schemas import PromptComponent, PromptStage
-from src.oligo.core.prompt_composer import PromptComposer, get_prompt_composer
+from src.oligo.core.prompt_composer import (
+    PromptComposer,
+    _render_xml_structured,
+    get_prompt_composer,
+)
 
 
 def _make(
@@ -87,3 +93,65 @@ def test_get_prompt_composer_singleton_and_stub() -> None:
     b = get_prompt_composer()
     assert a is b
     assert a.get_component("nope") is None
+    demo = a.get_component("retrieval_context_demo")
+    assert demo is not None
+    assert demo.renderer == "xml_structured"
+    assert isinstance(demo.template, dict)
+
+
+def test_render_xml_structured_nested_is_parseable_xml() -> None:
+    xmls = _render_xml_structured(
+        {
+            "outer": {"inner": [1, 2, 3], "nested": {"k": "v"}, "flag": True},
+            "meta": "x",
+        }
+    )
+    root = ET.fromstring(xmls)
+    assert root.tag == "structured"
+    outer = root.find("outer")
+    assert outer is not None
+    inner_el = outer.find("inner")
+    assert inner_el is not None
+    items = inner_el.findall("item")
+    assert [t.text for t in items] == ["1", "2", "3"]
+    assert outer.find("nested") is not None
+    assert outer.find("nested").find("k").text == "v"
+    flag_el = outer.find("flag")
+    assert flag_el is not None and flag_el.text == "true"
+    assert root.find("meta") is not None and root.find("meta").text == "x"
+
+
+def test_prompt_component_renderer_validation() -> None:
+    with pytest.raises(ValidationError):
+        PromptComponent(
+            id="bad_xml",
+            stage=PromptStage.ROUTER,
+            priority=1,
+            cacheable=True,
+            renderer="xml_structured",
+            template="not-dict",
+        )
+    with pytest.raises(ValidationError):
+        PromptComponent(
+            id="bad_text",
+            stage=PromptStage.ROUTER,
+            priority=1,
+            cacheable=True,
+            renderer="text",
+            template={"x": 1},
+        )
+
+
+def test_compose_retrieval_context_demo_when_active() -> None:
+    composer = get_prompt_composer()
+    stable, dynamic = composer.compose(
+        PromptStage.ROUTER,
+        {"tool_list": "- demo", "skill_override": "", "persona": "", "authors_note": ""},
+        active_ids={"retrieval_context_demo"},
+    )
+    blob = f"{stable}\n\n{dynamic}".strip()
+    assert "<structured>" in blob
+    assert "<retrieval>" in blob
+    assert "<source>demo</source>" in blob
+    assert "<title>Example</title>" in blob
+    ET.fromstring(blob)  # well-formed

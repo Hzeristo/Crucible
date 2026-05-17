@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # --- Paper / Triage ---
 
@@ -535,6 +535,9 @@ class PromptStage(str, Enum):
     MESSAGE_INJECTION = "message_injection"  # 注入到 messages 而非 system
 
 
+PromptRenderer = Literal["text", "xml_structured"]
+
+
 class PromptComponent(BaseModel):
     """单个 Prompt 片段的元数据"""
 
@@ -549,7 +552,24 @@ class PromptComponent(BaseModel):
         default=True,
         description="是否属于 stable prefix. 时间戳/会话 ID 等动态内容应为 False",
     )
-    template: str = Field(description="prompt 文本, 可含 {variable} 占位符")
+    renderer: PromptRenderer = Field(
+        default="text",
+        description="text: template 为 str，经 str.format(context)；xml_structured: template 为 dict，经 ElementTree 序列化注入（仅 prompt，不用于解析 LLM 输出）。",
+    )
+    template: str | dict[str, Any] = Field(
+        description="text 模式为含占位符的字符串；xml_structured 模式为可嵌套的 dict（由 PromptComposer 序列化为 XML）。",
+    )
+
+    @model_validator(mode="after")
+    def _renderer_matches_template_kind(self) -> PromptComponent:
+        if self.renderer == "xml_structured":
+            if not isinstance(self.template, dict):
+                raise ValueError(
+                    "renderer 'xml_structured' requires template to be a dict[str, Any]"
+                )
+        elif not isinstance(self.template, str):
+            raise ValueError("renderer 'text' requires template to be a str")
+        return self
 
 
 class ToolSpec(BaseModel):

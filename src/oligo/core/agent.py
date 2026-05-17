@@ -14,7 +14,9 @@ import logging
 import re
 import time
 from datetime import datetime
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Literal
+
+from collections.abc import Awaitable, Callable
 
 from src.crucible.core.schemas import (
     ChatMessage,
@@ -65,6 +67,9 @@ def _client_gone_exception_types() -> tuple[type[BaseException], ...]:
 
 
 CLIENT_GONE_EXCEPTIONS: tuple[type[BaseException], ...] = _client_gone_exception_types()
+
+# Router system prompt cap (IR.1): tool_list may shrink via ``_render_tool_list(..., max_chars=...)``.
+_ROUTER_SYSTEM_PROMPT_MAX_CHARS = 4000
 
 
 def _looks_like_pipe_broken(exc: BaseException) -> bool:
@@ -117,6 +122,161 @@ _WASH_CONTEXT_PER_MSG_CAP = 8000
 
 # Router 探针：极短/仅 ``<PASS>`` 则不回填 assistant（避免把噪声当作草稿塞给 Final）
 _ROUTER_TRIVIAL_MAX_CHARS = 30
+
+# --- IR.2: LLM-facing tool result XML + reflection hints (render-only taxonomy) ---
+_TR_REASON_DENIED = "DENIED"
+_TR_REASON_TIMEOUT = "TIMEOUT"
+_TR_REASON_TOOL_ERROR = "TOOL_ERROR"
+_TR_REASON_ARGS_INVALID = "ARGS_INVALID"
+_TR_REASON_EMPTY_RESULT = "EMPTY_RESULT"
+
+_REFLECTION_HINT_FAILURE = (
+    "Some tools failed. Consider: (a) retry with different args, (b) use an alternative tool, "
+    "(c) tell the user honestly."
+)
+_REFLECTION_HINT_EMPTY = (
+    "Empty result. Consider broadening query or trying web_search as fallback."
+)
+
+_USER_EXPECTATION_KEYWORDS: tuple[str, ...] = (
+    "find",
+    "search",
+    "look up",
+    "lookup",
+    "where",
+    "which",
+    "whether",
+    "any note",
+    "locate",
+    "有没有",
+    "查找",
+    "搜索",
+    "找",
+)
+
+_EMPTY_SUCCESS_MARKERS: tuple[str, ...] = (
+    "[no content]",
+    "no results found",
+    "no nodes found",
+    "[graph query] no nodes",
+    "[web_search] no results",
+    "no matching notes",
+    "no relevant information found",
+    "[wash result]: no relevant information found",
+)
+
+
+def _xml_attr_escape(value: str) -> str:
+    return (
+        (value or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _user_text_suggests_expectation(user_text: str) -> bool:
+    s = (user_text or "").strip().lower()
+    if len(s) < 3:
+        return False
+    return any(k.lower() in s for k in _USER_EXPECTATION_KEYWORDS)
+
+
+def _message_suggests_args_invalid(text: str) -> bool:
+    m = (text or "").lower()
+    needles = (
+        "invalid args",
+        "requires a non-empty",
+        "must be non-empty",
+        "invalid path",
+        "typeerror",
+        "failed to output json object",
+    )
+    return any(n in m for n in needles)
+
+
+def _success_payload_behaves_like_tool_failure(body: str) -> bool:
+    """Tools may return error prose with HTTP 200-style SUCCESS rows; surface as failure in render."""
+    s = (body or "").strip()
+    if not s:
+        return False
+    if s.lower().startswith("error:"):
+        return True
+    return s.startswith("[Tool Error]") or s.startswith("[Tool Timeout]")
+
+
+def _body_looks_empty_for_hint(body: str) -> bool:
+    s = (body or "").strip().lower()
+    if not s or s == "[no content]":
+        return True
+    return any(marker in s for marker in _EMPTY_SUCCESS_MARKERS)
+
+
+def _classify_render_outcome(
+    er: ExecutedToolResult,
+    result_body: str,
+) -> tuple[Literal["success", "failed"], str | None]:
+    """
+    Map execution row + body text to LLM-facing wrapper status and ``reason`` attribute.
+
+    Does not mutate ``ExecutedToolResult``; render-only.
+    """
+    st = er.status
+    if st == ToolCallStatus.DENIED:
+        return "failed", _TR_REASON_DENIED
+    if st == ToolCallStatus.TIMEOUT:
+        return "failed", _TR_REASON_TIMEOUT
+    if st == ToolCallStatus.ERROR:
+        blob = " ".join(
+            x
+            for x in (
+                result_body,
+                er.error_message or "",
+                er.raw_result or "",
+            )
+            if x
+        )
+        if _message_suggests_args_invalid(blob):
+            return "failed", _TR_REASON_ARGS_INVALID
+        return "failed", _TR_REASON_TOOL_ERROR
+
+    if st == ToolCallStatus.SUCCESS:
+        if _success_payload_behaves_like_tool_failure(result_body):
+            if _message_suggests_args_invalid(result_body):
+                return "failed", _TR_REASON_ARGS_INVALID
+            return "failed", _TR_REASON_TOOL_ERROR
+        if _body_looks_empty_for_hint(result_body):
+            return "failed", _TR_REASON_EMPTY_RESULT
+        return "success", None
+
+    return "failed", _TR_REASON_TOOL_ERROR
+
+
+def _format_one_tool_result_xml(
+    er: ExecutedToolResult,
+    display_status: Literal["success", "failed"],
+    reason: str | None,
+    result_body: str,
+) -> str:
+    inner_lines = [
+        f"--- Tool Call {er.call_id} ---",
+        f"Tool: {er.tool_name}",
+        f"Record status: {er.status.name}",
+        f"Args: {json.dumps(er.args, ensure_ascii=False)}",
+        "Result:",
+        result_body,
+    ]
+    inner = "\n".join(inner_lines)
+    cid = _xml_attr_escape(er.call_id)
+    if display_status == "success":
+        open_tag = f'<tool_result status="success" call_id="{cid}">'
+    else:
+        r = reason or _TR_REASON_TOOL_ERROR
+        open_tag = (
+            f'<tool_result status="failed" reason="{_xml_attr_escape(r)}" '
+            f'call_id="{cid}">'
+        )
+    return f"{open_tag}\n{inner}\n</tool_result>"
 
 
 def _is_router_pass_or_trivial(probe_response: str) -> bool:
@@ -270,10 +430,6 @@ class ChimeraAgent:
             *[m.model_copy(deep=True) for m in self.raw_messages],
         ]
 
-    def _build_tool_list_text(self) -> str:
-        """按 ToolRegistry 元数据与 ``allowed_tools`` 生成 router 工具列表行。"""
-        return _render_tool_list(self.allowed_tools)
-
     def _compute_active_router_components(self) -> set[str]:
         """决定 Router system 中启用的 ``PromptComponent`` id（含 ``dynamic_timestamp``）。
 
@@ -304,33 +460,55 @@ class ChimeraAgent:
             ids.add("final_authors_note")
         return ids
 
-    def _prompt_context(self) -> dict[str, Any]:
+    def _prompt_context(
+        self, tool_list_max_chars: int | None = None
+    ) -> dict[str, Any]:
         """供 ``PromptComposer.compose`` 使用的统一上下文（未使用的键由非活动组件忽略）。"""
         return {
             "system_core": self._system_core,
             "skill_override": self._skill_override or "",
             "persona": self._persona or "",
             "authors_note": self._authors_note or "",
-            "tool_list": self._build_tool_list_text(),
+            "tool_list": self._build_tool_list_text(max_chars=tool_list_max_chars),
             "timestamp": datetime.now().isoformat(),
         }
+
+    def _build_tool_list_text(self, max_chars: int | None = None) -> str:
+        """按 ToolRegistry 元数据与 ``allowed_tools`` 生成 router 工具块。"""
+        return _render_tool_list(self.allowed_tools, max_chars=max_chars)
 
     def _build_router_system_prompt(self) -> str:
         """从 ``PromptComposer`` 组装路由 System 文案（与 MW.0 拆分前语义一致）。"""
         composer = get_prompt_composer()
-        context = self._prompt_context()
         active_ids = self._compute_active_router_components()
-        stable, dynamic = composer.compose(
-            stage=PromptStage.ROUTER,
-            context=context,
-            active_ids=active_ids,
-        )
-        logger.debug(
-            "[Prompt] router compose stable_len=%s dynamic_len=%s",
-            len(stable),
-            len(dynamic),
-        )
-        return f"{stable}\n\n{dynamic}".strip()
+        budgets: list[int | None] = [None, 3200, 2400, 1800, 1200, 800]
+        last_body = ""
+        for tb in budgets:
+            context = self._prompt_context(tool_list_max_chars=tb)
+            stable, dynamic = composer.compose(
+                stage=PromptStage.ROUTER,
+                context=context,
+                active_ids=active_ids,
+            )
+            logger.debug(
+                "[Prompt] router compose stable_len=%s dynamic_len=%s tool_budget=%s",
+                len(stable),
+                len(dynamic),
+                tb,
+            )
+            body = f"{stable}\n\n{dynamic}".strip()
+            last_body = body
+            if len(body) <= _ROUTER_SYSTEM_PROMPT_MAX_CHARS:
+                return body
+
+        if len(last_body) > _ROUTER_SYSTEM_PROMPT_MAX_CHARS:
+            logger.warning(
+                "[Prompt] router system prompt len=%s exceeds %s after tool_list budgets; truncating",
+                len(last_body),
+                _ROUTER_SYSTEM_PROMPT_MAX_CHARS,
+            )
+            return last_body[: _ROUTER_SYSTEM_PROMPT_MAX_CHARS - 3] + "..."
+        return last_body
 
     def _apply_history_sanitizer_to_messages(self) -> None:
         """位点 C：在送往 LLM 前清洗 ``self.messages`` 历史（层 3）。"""
@@ -544,8 +722,26 @@ class ChimeraAgent:
     async def _execute_tool_plan_batch(
         self,
         batch: list[PlannedToolCall],
+        emit_tool_sse: Callable[[str], Awaitable[None]] | None = None,
     ) -> list[ExecutedToolResult]:
-        """执行单批计划：单工具直接 await；多工具 ``asyncio.gather``（与历史异常语义一致）。"""
+        """执行单批计划：单工具直接 await；多工具 ``asyncio.gather``（与历史异常语义一致）。
+
+        ``emit_tool_sse``：可选；每条为完整 SSE 文本帧（如 ``sse_event("bb-tool-start", ...)``），
+        仅在工具进入队列前后发出（IR.3 会话级遥测；不持久化）。
+        """
+        if emit_tool_sse:
+            for plan in batch:
+                await emit_tool_sse(
+                    sse_event(
+                        "bb-tool-start",
+                        {
+                            "call_id": plan.id,
+                            "tool_name": plan.tool_name,
+                            "started_at_ms": int(time.time() * 1000),
+                        },
+                    )
+                )
+
         async def _run_one(plan: PlannedToolCall) -> ExecutedToolResult:
             t0 = time.perf_counter()
             try:
@@ -596,7 +792,22 @@ class ChimeraAgent:
             )
 
         if len(batch) == 1:
-            return [await _run_one(batch[0])]
+            executed_single = [await _run_one(batch[0])]
+            if emit_tool_sse:
+                for er in executed_single:
+                    await emit_tool_sse(
+                        sse_event(
+                            "bb-tool-done",
+                            {
+                                "call_id": er.call_id,
+                                "status": er.status.name,
+                                "elapsed_ms": er.elapsed_ms
+                                if er.elapsed_ms is not None
+                                else 0,
+                            },
+                        )
+                    )
+            return executed_single
 
         results = await asyncio.gather(
             *(_run_one(p) for p in batch),
@@ -624,13 +835,34 @@ class ChimeraAgent:
                 )
             else:
                 executed.append(r)
+
+        if emit_tool_sse:
+            for er in executed:
+                await emit_tool_sse(
+                    sse_event(
+                        "bb-tool-done",
+                        {
+                            "call_id": er.call_id,
+                            "status": er.status.name,
+                            "elapsed_ms": er.elapsed_ms
+                            if er.elapsed_ms is not None
+                            else 0,
+                        },
+                    )
+                )
+
         return executed
 
     async def _execute_tool_calls(
         self,
         planned_calls: list[PlannedToolCall],
+        emit_tool_sse: Callable[[str], Awaitable[None]] | None = None,
     ) -> list[ExecutedToolResult]:
-        """允许的工具按 ``concurrency_safe`` 分批调度；拒绝项仅物化结果。"""
+        """允许的工具按 ``concurrency_safe`` 分批调度；拒绝项仅物化结果。
+
+        ``emit_tool_sse``：IR.3 可选；每批工具 ``bb-tool-start`` / ``bb-tool-done`` SSE（会话内，不持久化）。
+        ``tool-progress`` 未接；未来可在具柄工具内调用同一 callable 扩展。
+        """
         denied_out, allowed_plans = self._split_planned_denied_allowed(
             planned_calls
         )
@@ -649,8 +881,18 @@ class ChimeraAgent:
         registry = get_tool_registry()
         executed_allowed: list[ExecutedToolResult] = []
         for batch in partition_tool_calls(allowed_plans, registry):
+            if emit_tool_sse:
+                await emit_tool_sse(
+                    _sse_data(
+                        _sys_telemetry_obj(
+                            _tool_batch_start_payload(batch)
+                        )
+                    )
+                )
             executed_allowed.extend(
-                await self._execute_tool_plan_batch(batch)
+                await self._execute_tool_plan_batch(
+                    batch, emit_tool_sse=emit_tool_sse
+                )
             )
 
         logger.info(
@@ -788,29 +1030,51 @@ class ChimeraAgent:
             out.append(er.model_copy(update={"washed_result": washed}))
         return out, real_washes
 
+    def _latest_user_message_text(self) -> str:
+        """最近一次 user 消息正文，用于 IR.2 空结果 reflection hint。"""
+        for m in reversed(self.raw_messages):
+            if m.role == "user":
+                return (m.content or "").strip()
+        return ""
+
     def _render_tool_results_for_llm(
         self,
         results: list[ExecutedToolResult],
     ) -> str:
         """Format executed tool rows into one stable user message (no LLM calls)."""
         parts: list[str] = ["[SYSTEM TOOL RESULTS]", ""]
+        any_failed_display = False
+        any_empty_result = False
+        user_expects = _user_text_suggests_expectation(
+            self._latest_user_message_text()
+        )
+
         for er in results:
             payload = er.washed_result or er.raw_result or er.error_message
             if payload is None or str(payload).strip() == "":
                 result_body = "[No content]"
             else:
                 result_body = str(payload)
-            parts.extend(
-                [
-                    f"--- Tool Call {er.call_id} ---",
-                    f"Tool: {er.tool_name}",
-                    f"Status: {er.status.name}",
-                    f"Args: {json.dumps(er.args, ensure_ascii=False)}",
-                    "Result:",
-                    result_body,
-                    "",
-                ]
-            )
+
+            disp, reason = _classify_render_outcome(er, result_body)
+            if disp == "failed":
+                any_failed_display = True
+                if reason == _TR_REASON_EMPTY_RESULT:
+                    any_empty_result = True
+
+            parts.append(_format_one_tool_result_xml(er, disp, reason, result_body))
+            parts.append("")
+
+        hint_lines: list[str] = []
+        if any_failed_display:
+            hint_lines.append(_REFLECTION_HINT_FAILURE)
+        if any_empty_result and user_expects:
+            hint_lines.append(_REFLECTION_HINT_EMPTY)
+        hint_lines = hint_lines[:3]
+        if hint_lines:
+            parts.append("\n".join(hint_lines))
+            parts.append("")
+
         parts.extend(
             [
                 "Instruction:",
@@ -911,35 +1175,28 @@ class ChimeraAgent:
 
                 wash_context = self._wash_context_for_intent()
 
-                denied_out, allowed_plans = self._split_planned_denied_allowed(
-                    planned_calls
-                )
-                executed_allowed: list[ExecutedToolResult] = []
-                if allowed_plans:
-                    logger.info(
-                        "[Tool] begin partitioned allowed=%s tools=%s",
-                        len(allowed_plans),
-                        [p.tool_name for p in allowed_plans],
-                    )
-                    _reg = get_tool_registry()
-                    for _batch in partition_tool_calls(allowed_plans, _reg):
-                        yield _sse_data(
-                            _sys_telemetry_obj(
-                                _tool_batch_start_payload(_batch)
-                            )
+                tool_sse_q: asyncio.Queue[str | None] = asyncio.Queue()
+
+                async def emit_tool_sse(frame: str) -> None:
+                    await tool_sse_q.put(frame)
+
+                async def _tool_runner() -> list[ExecutedToolResult]:
+                    try:
+                        return await self._execute_tool_calls(
+                            planned_calls,
+                            emit_tool_sse=emit_tool_sse,
                         )
-                        executed_allowed.extend(
-                            await self._execute_tool_plan_batch(_batch)
-                        )
-                    logger.info(
-                        "[Tool] done results=%s",
-                        len(allowed_plans),
-                    )
-                else:
-                    logger.info(
-                        "[Tool] skip (no allowed tools executed; denied-only or empty)"
-                    )
-                executed_results = denied_out + executed_allowed
+                    finally:
+                        await tool_sse_q.put(None)
+
+                _tool_task = asyncio.create_task(_tool_runner())
+                while True:
+                    item = await tool_sse_q.get()
+                    if item is None:
+                        break
+                    yield item
+
+                executed_results = await _tool_task
 
                 for er in executed_results:
                     yield _sse_data(

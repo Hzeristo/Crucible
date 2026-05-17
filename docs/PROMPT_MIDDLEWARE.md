@@ -68,6 +68,78 @@ flowchart TD
 
 - `PromptStage.MESSAGE_INJECTION`：非当前默认注册路径；仅当需注入**非 system** 消息体时使用（见 `PromptComposer._component_matches_stage` 的扩展点）。
 
+### 2.4 `renderer` 与 `template` 形态（IR.4）
+
+`PromptComponent` 除 `text` 外支持 `renderer="xml_structured"`：`template` 须为 **可嵌套 dict**，由 `PromptComposer` 用 `xml.etree.ElementTree` 序列化为一段 XML 字符串后再参与 stable/dynamic 拼接（**仅注入 prompt**，不用于解析 LLM 输出）。
+
+字段定义与校验（`template` 与 `renderer` 必须一致）：
+
+```537:572:src/crucible/core/schemas.py
+PromptRenderer = Literal["text", "xml_structured"]
+
+
+class PromptComponent(BaseModel):
+    ...
+    renderer: PromptRenderer = Field(
+        default="text",
+        description="text: template 为 str，经 str.format(context)；xml_structured: template 为 dict，经 ElementTree 序列化注入（仅 prompt，不用于解析 LLM 输出）。",
+    )
+    template: str | dict[str, Any] = Field(
+        description="text 模式为含占位符的字符串；xml_structured 模式为可嵌套的 dict（由 PromptComposer 序列化为 XML）。",
+    )
+
+    @model_validator(mode="after")
+    def _renderer_matches_template_kind(self) -> PromptComponent:
+        if self.renderer == "xml_structured":
+            if not isinstance(self.template, dict):
+                raise ValueError(
+                    "renderer 'xml_structured' requires template to be a dict[str, Any]"
+                )
+        elif not isinstance(self.template, str):
+            raise ValueError("renderer 'text' requires template to be a str")
+        return self
+```
+
+`compose` 分支：`text` 走 `str.format(**context)`；`xml_structured` 走 `_render_xml_structured`（根元素名为 `structured`，子树由 dict 键值递归生成）：
+
+```230:236:src/oligo/core/prompt_composer.py
+def _render_xml_structured(data: dict[str, Any]) -> str:
+    """将嵌套 dict / list / 标量转为带缩进的 XML 字符串（ElementTree；仅用于 prompt 注入）。"""
+    root = ET.Element("structured")
+    for k, v in data.items():
+        _xml_append_value(root, k, v)
+    ET.indent(root, space="  ")
+    return ET.tostring(root, encoding="unicode")
+```
+
+```288:304:src/oligo/core/prompt_composer.py
+        for c in candidates:
+            if c.renderer == "xml_structured":
+                if not isinstance(c.template, dict):
+                    raise TypeError(
+                        f"component {c.id!r}: xml_structured template must be dict"
+                    )
+                rendered = _render_xml_structured(c.template)
+            else:
+                if not isinstance(c.template, str):
+                    raise TypeError(
+                        f"component {c.id!r}: text renderer expects str template"
+                    )
+                rendered = c.template.format(**context)
+            if c.cacheable:
+                stable_parts.append(rendered)
+            else:
+                dynamic_parts.append(rendered)
+```
+
+**使用场景**：把结构化片段（演示检索摘要、配置树、键值表）塞进 Router/Final system，避免手写易错的 XML 字符串或大量 `{{` 转义。
+
+**边界**：
+
+- 不支持在 `xml_structured` 的 dict 里写 `str.format` 占位符；若需注入 `context` 中的标量，请拆成 `text` 组件或在外层用 `text` 包裹说明。
+- 标签名由键名经 `_sanitize_xml_tag` 规范化；异常键名会被替换，不保证与原键完全同源字符级一致。
+- **示例组件 `retrieval_context_demo`** 已注册为 `xml_structured`，但 **默认未列入** `_compute_active_router_components` 的 `active_ids`；若要启用须在 `ChimeraAgent._compute_active_router_components`（或等价扩展点）显式加入该 id（`364:380:src/oligo/core/prompt_composer.py`）。
+
 ---
 
 ## 3. 现行 component 清单
@@ -77,7 +149,7 @@ flowchart TD
 | id | stage | priority | cacheable | 注入条件 (pseudo-code) | 模板占位符 / 说明 |
 |----|--------|----------|------------|-------------------------|-------------------|
 | `router_core` | ROUTER | 100 | 是 | `always` | 无；`ROUTER_INTRO` 常量。 |
-| `router_tool_registry` | ROUTER | 90 | 是 | `always` | `{tool_list}`，拼 `ROUTER_POST_TOOLS`。工具列表由 **`ToolRegistry.list_specs()`**（经 `ChimeraAgent._build_tool_list_text` → `_render_tool_list`）按 `allowed_tools` 过滤生成；每行含 **`long_running` 时追加 `[returns task_id]`** 标记。 |
+| `router_tool_registry` | ROUTER | 90 | 是 | `always` | `{tool_list}`，拼 `ROUTER_POST_TOOLS`。工具列表由 **`ToolRegistry.list_specs()`**（经 `ChimeraAgent._build_tool_list_text` → `_render_tool_list`）按 `allowed_tools` 过滤生成；**verbose** 模式下 `long_running` 工具在标题行追加 **`[long_running → returns task_id; poll with the status tool from the same list]`**（见 `_format_one_tool_verbose`）。 |
 | `router_skill_directive` | ROUTER | 80 | 是 | `if self._skill_override` | `{skill_override}`。 |
 | `final_system_core` | FINAL | 100 | 是 | `always` | `{system_core}`。 |
 | `final_skill_directive` | FINAL | 80 | 是 | `if self._skill_override` | `{skill_override}`。 |
@@ -85,8 +157,9 @@ flowchart TD
 | `final_authors_note` | FINAL | 40 | 是 | `if self._authors_note` | `{authors_note}`。 |
 | `final_guardrail` | FINAL | 10 | 是 | `always` | 无；`FINAL_GUARDRAIL_TEXT`。 |
 | `dynamic_timestamp` | BOTH | 5 | 否 | `always` | `{timestamp}`，一般为 `datetime.now().isoformat()`。 |
+| `retrieval_context_demo` | ROUTER | 15 | 是 | **默认关闭**（未加入 Router `active_ids`） | `renderer=xml_structured`，`template` 为演示用 dict；启用方式见 [§2.4](#24-renderer-与-template-形态ir4)。 |
 
-> Router 的 `active_ids` 不含 persona / author；仅 `_compute_active_router_components` 与上表一致。Final 为 `_compute_active_final_components`。
+> Router 的 `active_ids` 不含 persona / author；仅 `_compute_active_router_components` 与上表一致（外加未默认启用的 `retrieval_context_demo`）。Final 为 `_compute_active_final_components`。
 
 ---
 
@@ -94,7 +167,7 @@ flowchart TD
 
 1. **选 `id`**：在仓库中搜索，避免与现有 id、测试中的字符串冲突。
 2. **选 `stage` / `priority` / `cacheable`**：对照 [2. PromptComponent 字段](#2-promptcomponent-字段语义) 与 [3. 组件清单表](#3-现行-component-清单)。需要每请求唯一值则 `cacheable=False`。
-3. **写 `template`**：仅使用 `str.format` 支持的 `{name}`；字面量大括号写作 `{{` / `}}`（参见 `router_tool_registry` 与 `ROUTER_POST_TOOLS`）。
+3. **写 `template`**：`renderer="text"` 时仅使用 `str.format` 支持的 `{name}`，字面量大括号写作 `{{` / `}}`（参见 `router_tool_registry` 与 `ROUTER_POST_TOOLS`）。`renderer="xml_structured"` 时为 **dict**，见 [§2.4](#24-renderer-与-template-形态ir4)。
 4. 在 **`_register_default_components`** 中 `composer.register(PromptComponent(...))`。
 5. 在 **`_compute_active_router_components`** 或 **`_compute_active_final_components`** 中加入条件；若新片段条件复杂，可抽小函数并加单测。
 6. **更新本文档 [3. 现行 component 清单](#3-现行-component-清单)** 的表格，并在 MW.2 侧表格（若仍存在）保持同步；同步更新 `tests/oligo/test_prompt_middleware_regression.py` 中的 `MW4_COMBINED_PROMPT_BASELINE_BYTES`（若模板长度变化）。
@@ -135,3 +208,4 @@ flowchart TD
 ## 修订与同步
 
 - 修改默认组件或 `active_ids` 逻辑时：更新本文件 [§3](#3-现行-component-清单)、`tests/oligo/test_prompt_middleware_regression.py` 中的基线/断言（若适用）。
+- 意图识别、工具失败展示与「不自动 retry」边界见 `docs/INTENT_AND_DEGRADATION.md`。

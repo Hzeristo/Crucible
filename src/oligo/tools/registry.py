@@ -107,12 +107,19 @@ def _register_default_tools(reg: ToolRegistry) -> None:
                 "(keyword-style)."
             ),
             args_schema={
-                "query": {"type": "str", "required": True},
-                "top_k": {"type": "int", "required": False},
+                "query": {
+                    "type": "str",
+                    "required": True,
+                    "help": "Keywords to match in note bodies.",
+                },
+                "top_k": {
+                    "type": "int",
+                    "required": False,
+                    "help": "Maximum snippets to return (default 3).",
+                },
             },
             concurrency_safe=True,
             long_running=False,
-            examples=['<CMD:search_vault({"query": "memory architecture"})>'],
         ),
     )
     reg.register(
@@ -120,10 +127,15 @@ def _register_default_tools(reg: ToolRegistry) -> None:
         ToolSpec(
             name="read_vault_file",
             description="Read the full content of a vault note by its path.",
-            args_schema={"path": {"type": "str", "required": True}},
+            args_schema={
+                "path": {
+                    "type": "str",
+                    "required": True,
+                    "help": "Path to the note relative to the vault root (or absolute under vault).",
+                },
+            },
             concurrency_safe=True,
             long_running=False,
-            examples=['<CMD:read_vault_file({"path": "00_Inbox/example.md"})>'],
         ),
     )
     reg.register(
@@ -135,15 +147,24 @@ def _register_default_tools(reg: ToolRegistry) -> None:
                 "as substring)."
             ),
             args_schema={
-                "key": {"type": "str", "required": True},
-                "value": {"type": "str", "required": True},
-                "top_k": {"type": "int", "required": False},
+                "key": {
+                    "type": "str",
+                    "required": True,
+                    "help": "Frontmatter field name (e.g. tags, type).",
+                },
+                "value": {
+                    "type": "str",
+                    "required": True,
+                    "help": "Substring to find within that field's value.",
+                },
+                "top_k": {
+                    "type": "int",
+                    "required": False,
+                    "help": "Maximum hits (default 5).",
+                },
             },
             concurrency_safe=True,
             long_running=False,
-            examples=[
-                '<CMD:search_vault_attribute({"key": "tags", "value": "ml"})>',
-            ],
         ),
     )
     reg.register(
@@ -155,15 +176,24 @@ def _register_default_tools(reg: ToolRegistry) -> None:
                 "wikilinks, graph_edges)."
             ),
             args_schema={
-                "node_type": {"type": "str", "required": False},
-                "link_pattern": {"type": "str", "required": False},
-                "max_depth": {"type": "int", "required": False},
+                "node_type": {
+                    "type": "str",
+                    "required": False,
+                    "help": "Filter nodes by YAML type field (nullable to skip).",
+                },
+                "link_pattern": {
+                    "type": "str",
+                    "required": False,
+                    "help": "Substring that must appear in the note body (nullable to skip).",
+                },
+                "max_depth": {
+                    "type": "int",
+                    "required": False,
+                    "help": "Graph BFS depth from seed nodes (clamped 1–8 on execution; default 2).",
+                },
             },
             concurrency_safe=True,
             long_running=False,
-            examples=[
-                '<CMD:obsidian_graph_query({"node_type": "insight"})>',
-            ],
         ),
     )
     reg.register(
@@ -171,10 +201,15 @@ def _register_default_tools(reg: ToolRegistry) -> None:
         ToolSpec(
             name="web_search",
             description="Search the web using DuckDuckGo (no API key).",
-            args_schema={"query": {"type": "str", "required": True}},
+            args_schema={
+                "query": {
+                    "type": "str",
+                    "required": True,
+                    "help": "Search keywords (must be non-empty after trim).",
+                },
+            },
             concurrency_safe=True,
             long_running=False,
-            examples=['<CMD:web_search({"query": "latest RAG benchmarks"})>'],
         ),
     )
     reg.register(
@@ -183,15 +218,22 @@ def _register_default_tools(reg: ToolRegistry) -> None:
             name="arxiv_miner",
             description=(
                 "Fetch papers from arXiv and process them into Markdown; returns a "
-                "task_id immediately — use check_task_status to poll."
+                "task_id immediately — poll with the task-status tool from the same list."
             ),
             args_schema={
-                "query": {"type": "str", "required": True},
-                "max_results": {"type": "int", "required": False},
+                "query": {
+                    "type": "str",
+                    "required": True,
+                    "help": "arXiv / literature search query string.",
+                },
+                "max_results": {
+                    "type": "int",
+                    "required": False,
+                    "help": "How many papers to fetch (1–2000; default 5).",
+                },
             },
             concurrency_safe=False,
             long_running=True,
-            examples=['<CMD:arxiv_miner({"query": "graph neural networks"})>'],
         ),
     )
     reg.register(
@@ -200,16 +242,27 @@ def _register_default_tools(reg: ToolRegistry) -> None:
             name="daily_paper_pipeline",
             description=(
                 "Run the full daily paper pipeline (long-running); returns task_id — "
-                "use check_task_status."
+                "poll with the task-status tool from the same list."
             ),
             args_schema={
-                "arxiv_query": {"type": "str", "required": False},
-                "arxiv_max_results": {"type": "int", "required": False},
-                "skip_telegram": {"type": "bool", "required": False},
+                "arxiv_query": {
+                    "type": "str",
+                    "required": False,
+                    "help": "Optional override for the configured arXiv query.",
+                },
+                "arxiv_max_results": {
+                    "type": "int",
+                    "required": False,
+                    "help": "Optional cap on arXiv results (1–2000).",
+                },
+                "skip_telegram": {
+                    "type": "bool",
+                    "required": False,
+                    "help": "If true, skip the Telegram broadcast step.",
+                },
             },
             concurrency_safe=False,
             long_running=True,
-            examples=["<CMD:daily_paper_pipeline({})>"],
         ),
     )
     reg.register(
@@ -219,10 +272,15 @@ def _register_default_tools(reg: ToolRegistry) -> None:
             description=(
                 "Return status or result for a background task (read-only poll)."
             ),
-            args_schema={"task_id": {"type": "str", "required": True}},
+            args_schema={
+                "task_id": {
+                    "type": "str",
+                    "required": True,
+                    "help": "Identifier returned when starting a long-running task.",
+                },
+            },
             concurrency_safe=True,
             long_running=False,
-            examples=['<CMD:check_task_status({"task_id": "abc123"})>'],
         ),
     )
 

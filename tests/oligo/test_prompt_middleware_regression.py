@@ -41,7 +41,7 @@ _FINAL_REGRESSION: set[str] = {
 }
 
 # MW.4 锁定：_combined_regression_prompt_bytes() 在默认组件下的 UTF-8 长度
-MW4_COMBINED_PROMPT_BASELINE_BYTES = 2341
+MW4_COMBINED_PROMPT_BASELINE_BYTES = 2492
 
 
 def _combined_regression_prompt_bytes() -> int:
@@ -176,6 +176,32 @@ def test_overall_prompt_length_within_mw4_migration_budget() -> None:
     n = _combined_regression_prompt_bytes()
     limit = (MW4_COMBINED_PROMPT_BASELINE_BYTES * 110 + 99) // 100
     assert n <= limit, f"combined={n} exceeds 110% of baseline {MW4_COMBINED_PROMPT_BASELINE_BYTES} (cap {limit})"
+
+
+def test_ir1_render_tool_list_exposes_schema_and_zero_arg_example() -> None:
+    """Sprint IR.1: registry-driven list includes params/help and ``{{}}`` example for all-optional tools."""
+    from src.oligo.core.prompt_composer import _render_tool_list
+
+    blob = _render_tool_list()
+    assert "### daily_paper_pipeline" in blob
+    assert 'name="daily_paper_pipeline"><args>{}</args>' in blob
+    assert "Example (CMD): <CMD:daily_paper_pipeline({})>" in blob
+    assert "  - query (str, required):" in blob
+    assert "  - key (str, required):" in blob and "  - value (str, required):" in blob
+
+
+def test_ir1_router_system_message_within_char_cap() -> None:
+    from src.oligo.core.agent import ChimeraAgent
+
+    client = MockLLMClient(probe_response="<PASS>", final_response="done.")
+    agent = ChimeraAgent(
+        raw_messages=[{"role": "user", "content": "ping"}],
+        system_core="persona core",
+        skill_override=None,
+        llm_client=client,
+        router_client=client,
+    )
+    assert len(agent.messages[0].content) <= 4000
 
 
 def test_full_theater_pass_path_runs() -> None:
